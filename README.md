@@ -1,123 +1,108 @@
 # job-scraper
 
-OnlineJobsPH (scraper) Go Backend → Go backend clean data
-                                         ↓
-                                   n8n Workflow
-                                         ↓
-                                CV Match check (AI Model)
-                                         ↓
-                                Store matched jobs
-                                         ↓
-                            Every 5 new matches → Discord
+Go service that **matches job postings to your CV** using a local **[Ollama](https://ollama.com/)** model, stores results in **PostgreSQL**, and exposes a small **HTTP API** plus a **web UI** to browse and export matches.
 
-                    
+Typical flow: jobs land in Postgres (for example via **n8n** scraping **OnlineJobsPH** or any other ingest). This binary runs **migrations**, a **background matcher** (worker pool + Ollama), and an **HTTP server** on port `8080` by default.
 
+```mermaid
+flowchart LR
+  subgraph ingest [Ingest]
+    N[n8n / scripts]
+  end
+  subgraph app [This repo]
+    M[Matcher workers]
+    O[Ollama API]
+    H[HTTP API + web UI]
+  end
+  DB[(PostgreSQL)]
+  N --> DB
+  M --> DB
+  M --> O
+  H --> DB
+```
 
-Stack
-Layer                           Technology
+## Features
 
-Backend / Scraper                   Go
-Database                            PostgreSQL
-Orchestration                       n8n
-AI Matching                         Ollama local model (via n8n HTTP node or Go)
-Notifications                       Discord Webhook
+- **CV fit scoring** — For each pending job, the analyzer sends job text + your CV to Ollama and parses a structured result (`fit`, `score`, `reason`).
+- **“Today” backlog** — The matcher selects rows with `match_score IS NULL` and `posted_at` on the **current calendar day** (server local timezone), then **drains** that set each poll (paged fetches; default page size 100).
+- **REST API** — Paginated matched jobs and CSV/XLSX export.
+- **Web UI** — Static shell under `web/` served at `/`.
+- **Migrations** — Embedded SQL under `internal/db/` (golang-migrate).
 
+## Requirements
 
+- **Go** (see `go.mod` for the toolchain version)
+- **PostgreSQL** with a `jobs` table compatible with the migrations
+- **Ollama** running and reachable (default `http://127.0.0.1:11434`), with your chosen model pulled (e.g. `llama3.2:3b`)
 
-CURRENT SETUP:
+## Database schema (summary)
 
-Both N8N and Postgresql are run via docker in an ubuntu server virtual machine and Go Backend is running in the local machine
+Migrations live in `internal/db/`. The `jobs` table includes listing fields, `posted_at`, match fields (`is_match`, `match_score`, `match_reason`), `notified`, and `analyzed_at` (time of last successful analysis write).
 
+## Configuration
 
-job-scanner/
-├── CLAUDE.md                  ← this file
-├── .env                       ← secrets (never commit)
-├── cmd/
-│   └── scraper/
-│       └── main.go            ← entry point for scraper binary
-├── internal/
-│   ├── scraper/
-│   │   └── onlinejobsph.go    ← scraping logic
-│   ├── db/
-│   │   └── postgres.go        ← DB connection, queries
-│   ├── matcher/
-│   │   └── AI-analyzer.go          ← CV match logic via Claude API
-│   └── models/
-│       └── job.go             ← Job struct
-├── migrations/
-│   └── 001_init.sql           ← DB schema
-├── cv/
-│   └── cv.txt                 ← Plain text version of your CV
-|   
-└── n8n/
-    └── workflow.json          ← Exported n8n workflow (for backup/version control)
+Copy `.env.sample` to `.env` and fill in values. **Do not commit `.env`.**
 
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | Postgres URL for **migrations** (e.g. `postgres://user:pass@host:5432/dbname?sslmode=disable`) |
+| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE`, `DB_TIMEZONE` | Yes | Individual settings used by the app’s **GORM** connection |
+| `PORT` | No | HTTP listen port (default `8080`) |
+| `OLLAMA_BASE_URL` | No | Default `http://127.0.0.1:11434` |
+| `OLLAMA_MODEL` | No | Default `llama3.2:3b` |
+| `OLLAMA_THINK` | No | Set `true` / `1` / `yes` only if your model supports Ollama’s thinking mode |
+| `MATCHER_WORKERS` | No | Concurrent analyzer workers (default `2`) |
+| `MATCHER_BATCH_SIZE` | No | Max rows per DB fetch when draining pending jobs (default `100`) |
+| `CV_PATH` | No | Path to plain-text CV (default `cv.text`) |
+| `WEB_ROOT` | No | Static UI directory (default `web`) |
 
+Use `cv.example.text` as a template; keep your real CV in `cv.text` (or another path via `CV_PATH`) and add `cv.text` to `.gitignore` if you use that filename locally.
 
+## Run
 
--- migrations/001_init.sql
+```bash
+go run ./cmd/job-scraper
+```
 
-CREATE TABLE jobs (
-    id              SERIAL PRIMARY KEY,
-    external_id     TEXT UNIQUE NOT NULL,       -- unique ID or URL hash from OnlineJobsPH
-    title           TEXT NOT NULL,
-    company         TEXT,
-    location        TEXT,
-    salary          TEXT,
-    description     TEXT,
-    url             TEXT NOT NULL,
-    posted_at       TIMESTAMPTZ,
-    scraped_at      TIMESTAMPTZ DEFAULT NOW(),
-    is_match        BOOLEAN DEFAULT FALSE,
-    match_score     INT,                        -- 0–100 from Claude
-    match_reason    TEXT,                       -- Claude's explanation
-    notified        BOOLEAN DEFAULT FALSE       -- whether this job was part of a Discord batch
-);
+Build:
 
-CREATE INDEX idx_jobs_is_match ON jobs(is_match);
-CREATE INDEX idx_jobs_notified ON jobs(notified);
+```bash
+go build -o job-scraper ./cmd/job-scraper
+```
 
+## HTTP API
 
-#DATABASE
-DB_HOST=172.31.186.103
-DB_PORT=5432
-DB_USER=shinichikudo1st
-DB_PASSWORD=myjobscraperengine
-DB_NAME=jobscraper
-DB_SSLMODE=disable
-DB_TIMEZONE=Asia/Tokyo
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/health` | Liveness (`{"status":"ok"}`) |
+| `GET` | `/api/jobs/matched` | Paginated jobs with `is_match = true`. Query: `notified` (bool), `limit` (1–100, default 20), `offset` |
+| `GET` | `/api/jobs/matched/export?format=csv` or `format=xlsx` | Download up to 10k matched rows |
 
-DATABASE_URL=postgres://shinichikudo1st:myjobscraperengine@172.31.186.103:5432/jobscraper?sslmode=disable&timezone=Asia/Tokyo
+Open `http://localhost:8080/` for the UI (when `WEB_ROOT` is set and `web/index.html` exists).
 
+## Project layout
 
-n8n Workflow Design
+```
+cmd/job-scraper/       # main: migrations, matcher goroutine, HTTP server
+internal/api/          # matched jobs handlers
+internal/db/           # connection, migrations, queries
+internal/export/       # CSV / XLSX
+internal/matcher/      # Ollama client, analyzer, polling workers
+internal/models/       # Job model
+internal/server/       # Gin router
+web/                   # static UI
+```
 
-Use n8n to orchestrate the full pipeline
+## Matcher behavior (details)
 
-Workflow: Job Scanner Pipeline
+- Poll interval defaults to **5 minutes** between full drain cycles.
+- Each cycle repeatedly fetches up to `MATCHER_BATCH_SIZE` pending “today” jobs until none remain, or until a page yields **no successful updates** (avoids tight loops when every row fails, e.g. Ollama down).
+- Jobs are only candidates while `match_score` is still `NULL`; successful analysis sets `is_match`, `match_score`, `match_reason`, and `analyzed_at`.
 
-[Schedule Trigger]
-    ↓ every 30/60 min
-[HTTP Request] → GET OnlineJobsPH search URL
-    ↓
-[HTML Extract / Code Node] → parse job listings
-    ↓
-[Loop Over Items]
-    ↓
-[Postgres Node] → INSERT ... ON CONFLICT DO NOTHING
-    ↓ (if new row)
-[HTTP Request] → POST AI with job + CV
-    ↓
-[Code Node] → parse AI JSON response
-    ↓
-[Postgres Node] → UPDATE jobs SET is_match, match_score, match_reason
-    ↓
-[Postgres Node] → SELECT COUNT(*) WHERE is_match=true AND notified=false
-    ↓
-[IF Node] → count >= 5?
-    ↓ YES
-[Postgres Node] → SELECT unnotified matched jobs
-    ↓
-[HTTP Request] → POST Discord Webhook
-    ↓
-[Postgres Node] → UPDATE jobs SET notified=true WHERE id IN (...)
+## Ingestion
+
+This repository focuses on **analysis and serving**. Feeding `jobs` (respecting `external_id` uniqueness and the column set in migrations) can be done with n8n, scripts, or another scraper—whatever fits your setup.
+
+## License
+
+No license file is included in this repository; add one if you intend to specify terms for reuse.
