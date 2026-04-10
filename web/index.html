@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Matched jobs — job-scraper</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <div class="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+    <header class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight text-white">Matched jobs</h1>
+        <p class="mt-1 text-sm text-slate-400">Pulled from <code class="rounded bg-slate-800 px-1 py-0.5 text-xs">/api/jobs/matched</code></p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <a id="btn-csv" href="#" class="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">Download CSV</a>
+        <a id="btn-xlsx" href="#" class="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500">Download Excel</a>
+        <button id="btn-refresh" type="button" class="inline-flex items-center rounded-lg border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-medium hover:bg-slate-800">Refresh</button>
+      </div>
+    </header>
+
+    <section class="mb-6 rounded-xl border border-slate-800 bg-slate-900/50 p-4 shadow-sm">
+      <div class="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
+        <label class="flex items-center gap-2 text-sm">
+          <input id="filter-notified" type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500" />
+          <span>Show <strong>notified</strong> jobs only</span>
+        </label>
+        <div class="flex flex-wrap gap-4">
+          <div>
+            <label for="date-from" class="block text-xs font-medium text-slate-400">Posted from</label>
+            <input id="date-from" type="date" class="mt-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+          </div>
+          <div>
+            <label for="date-to" class="block text-xs font-medium text-slate-400">Posted to</label>
+            <input id="date-to" type="date" class="mt-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
+          </div>
+        </div>
+        <p id="status-line" class="text-sm text-slate-400 lg:ml-auto">Loading…</p>
+      </div>
+    </section>
+
+    <div id="error-banner" class="mb-4 hidden rounded-lg border border-red-900 bg-red-950/80 px-4 py-3 text-sm text-red-200"></div>
+
+    <div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/30 shadow-sm">
+      <table class="min-w-full divide-y divide-slate-800 text-left text-sm" id="jobs-table">
+        <thead class="bg-slate-900/80 text-xs uppercase tracking-wide text-slate-400">
+          <tr>
+            <th class="px-4 py-3 font-medium">Title</th>
+            <th class="px-4 py-3 font-medium">Salary</th>
+            <th class="px-4 py-3 font-medium">Score</th>
+            <th class="px-4 py-3 font-medium">Reason</th>
+            <th class="px-4 py-3 font-medium">Link</th>
+          </tr>
+        </thead>
+        <tbody id="jobs-tbody" class="divide-y divide-slate-800 text-slate-200"></tbody>
+      </table>
+    </div>
+    <p class="mt-4 text-center text-xs text-slate-500">Tip: run the app from the repo root so <code class="text-slate-400">web/</code> is served, or set <code class="text-slate-400">WEB_ROOT</code>.</p>
+  </div>
+
+  <script>
+(function () {
+  const tbody = document.getElementById("jobs-tbody");
+  const statusLine = document.getElementById("status-line");
+  const errorBanner = document.getElementById("error-banner");
+  const filterNotified = document.getElementById("filter-notified");
+  const dateFrom = document.getElementById("date-from");
+  const dateTo = document.getElementById("date-to");
+  const btnRefresh = document.getElementById("btn-refresh");
+  const btnCsv = document.getElementById("btn-csv");
+  const btnXlsx = document.getElementById("btn-xlsx");
+
+  let rawItems = [];
+
+  function showError(msg) {
+    errorBanner.textContent = msg;
+    errorBanner.classList.remove("hidden");
+  }
+  function clearError() {
+    errorBanner.classList.add("hidden");
+    errorBanner.textContent = "";
+  }
+
+  function notifiedParam() {
+    return filterNotified.checked ? "true" : "false";
+  }
+
+  function exportHref(format) {
+    return "/api/jobs/matched/export?format=" + encodeURIComponent(format) + "&notified=" + notifiedParam();
+  }
+
+  function parseDay(s) {
+    if (!s) return null;
+    const d = new Date(s + "T00:00:00");
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function jobDay(postedAt) {
+    if (!postedAt) return null;
+    const d = new Date(postedAt);
+    if (isNaN(d.getTime())) return null;
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+
+  function inDateRange(postedAt) {
+    const from = parseDay(dateFrom.value);
+    const to = parseDay(dateTo.value);
+    const jd = jobDay(postedAt);
+    if (!jd) return true;
+    if (from && jd < from) return false;
+    if (to && jd > to) return false;
+    return true;
+  }
+
+  function esc(s) {
+    if (s == null || s === "") return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function renderRows(items) {
+    tbody.innerHTML = "";
+    const filtered = items.filter(function (j) { return inDateRange(j.posted_at); });
+    if (filtered.length === 0) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = '<td colspan="5" class="px-4 py-8 text-center text-slate-500">No rows match filters.</td>';
+      tbody.appendChild(tr);
+      return;
+    }
+    filtered.forEach(function (j) {
+      const tr = document.createElement("tr");
+      tr.className = "hover:bg-slate-800/50";
+      const title = esc(j.title || "");
+      const salary = esc((j.salary != null ? j.salary : "") || "");
+      const score = j.match_score != null ? esc(String(j.match_score)) : "—";
+      const reason = esc((j.match_reason != null ? j.match_reason : "") || "");
+      const url = j.url || "#";
+      const safeUrl = esc(url);
+      tr.innerHTML =
+        '<td class="px-4 py-3 font-medium text-white">' + title + "</td>" +
+        '<td class="px-4 py-3 text-slate-300">' + salary + "</td>" +
+        '<td class="px-4 py-3 text-slate-300">' + score + "</td>" +
+        '<td class="max-w-md px-4 py-3 text-slate-400">' + reason + "</td>" +
+        '<td class="px-4 py-3"><a class="text-sky-400 hover:underline" href="' + safeUrl + '" target="_blank" rel="noopener">Open</a></td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function loadJobs() {
+    clearError();
+    statusLine.textContent = "Loading…";
+    const url = "/api/jobs/matched?notified=" + notifiedParam() + "&limit=100&offset=0";
+    try {
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || res.statusText);
+      }
+      const data = await res.json();
+      rawItems = Array.isArray(data.items) ? data.items : [];
+      statusLine.textContent = rawItems.length + " job(s) loaded" + (data.total != null ? " (total " + data.total + ")" : "");
+      renderRows(rawItems);
+    } catch (e) {
+      showError("Failed to load jobs: " + (e && e.message ? e.message : String(e)));
+      statusLine.textContent = "Error";
+      tbody.innerHTML = "";
+    }
+  }
+
+  btnRefresh.addEventListener("click", loadJobs);
+  filterNotified.addEventListener("change", loadJobs);
+  dateFrom.addEventListener("change", function () { renderRows(rawItems); });
+  dateTo.addEventListener("change", function () { renderRows(rawItems); });
+
+  btnCsv.addEventListener("click", function (e) {
+    e.preventDefault();
+    window.location.href = exportHref("csv");
+  });
+  btnXlsx.addEventListener("click", function (e) {
+    e.preventDefault();
+    window.location.href = exportHref("xlsx");
+  });
+
+  loadJobs();
+})();
+  </script>
+</body>
+</html>
