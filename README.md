@@ -70,6 +70,33 @@ Build:
 go build -o job-scraper ./cmd/job-scraper
 ```
 
+## Docker
+
+This repo includes a `Dockerfile` and `docker-compose.yml` for running the service in a container.
+
+### Prerequisites
+
+- Create a local `.env` (copy from `.env.sample`) in the repo root.
+- Ensure Ollama is running.
+
+Important: when the app runs *inside Docker*, `127.0.0.1` refers to the container itself.
+If your Ollama instance is running on your host machine, set:
+
+```bash
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+```
+
+### Run with Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Then open:
+
+- UI: `http://localhost:8080/`
+- Health: `http://localhost:8080/api/health`
+
 ## HTTP API
 
 | Method | Path | Description |
