@@ -1,5 +1,7 @@
 *.env
 cv.text
 job-scraper.exe
+*.db
+*.db-*
 test_ollama.json
 MATCHER_PHASES.md

@@ -1,8 +1,8 @@
 # Smarter OLJ
 
-Smarter OLJ is a Go service that matches OnlineJobsPH job postings to a CV using an AI model, stores match results in PostgreSQL, and exposes a small HTTP API plus a web UI to browse and export matches.
+Smarter OLJ is a Go service that matches OnlineJobsPH job postings to a CV using an AI model, stores match results in a local database, and exposes a small HTTP API plus a web UI to browse and export matches.
 
-The current app is a local analyzer service. Jobs are expected to land in Postgres first, for example from n8n, scripts, or another scraper. The service then runs migrations, starts background matcher workers, calls Ollama for scoring, and serves the UI on port `8080` by default.
+The current app is a local analyzer service. By default it creates a SQLite database on the user's machine. Postgres is still available as an advanced option. Jobs are expected to land in the database first, for example from n8n, scripts, or another scraper. The service then runs migrations, starts background matcher workers, calls Ollama for scoring, and serves the UI on port `8080` by default.
 
 This repo is being productized into a downloadable local-first job search tool for OnlineJobsPH jobseekers. See [PRODUCTIZATION_PLAN.md](PRODUCTIZATION_PLAN.md) for the planned SQLite database, CV/profile manager, Go scraper, and pluggable AI providers.
 
@@ -18,7 +18,7 @@ flowchart LR
     O[Ollama API]
     H[HTTP API + web UI]
   end
-  DB[(PostgreSQL)]
+  DB[(SQLite by default)]
   N --> DB
   M --> DB
   M --> O
@@ -36,13 +36,14 @@ flowchart LR
 ## Requirements
 
 - Go, using the version declared in `go.mod`
-- PostgreSQL with a `jobs` table compatible with the migrations
+- SQLite is created automatically by default
+- Optional: PostgreSQL if `DB_DRIVER=postgres`
 - Ollama running and reachable, defaulting to `http://127.0.0.1:11434`
 - An Ollama model pulled locally, for example `llama3.2:3b`
 
 ## Database Schema
 
-Migrations live in `internal/db/`. The `jobs` table includes listing fields, `posted_at`, match fields (`is_match`, `match_score`, `match_reason`), `notified`, and `analyzed_at`.
+Migrations live in `internal/db/`. SQLite migrations run automatically against the configured local database file. Postgres migrations use the embedded SQL files. The `jobs` table includes listing fields, `posted_at`, match fields (`is_match`, `match_score`, `match_reason`), `notified`, and `analyzed_at`.
 
 ## Configuration
 
@@ -52,8 +53,10 @@ Do not commit real `.env` files, CV files, API keys, database dumps, or other pr
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes | Postgres URL for migrations, for example `postgres://user:pass@localhost:5432/jobscraper?sslmode=disable` |
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE`, `DB_TIMEZONE` | Yes | Individual settings used by the app's GORM connection |
+| `DB_DRIVER` | No | `sqlite` by default. Set to `postgres` for advanced Postgres mode |
+| `DB_PATH` | No | SQLite path. Use `auto` or leave empty to create the database under the user's app data directory |
+| `DATABASE_URL` | Postgres only | Postgres URL for migrations, for example `postgres://user:pass@localhost:5432/jobscraper?sslmode=disable` |
+| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE`, `DB_TIMEZONE` | Postgres only | Individual settings used by the app's GORM connection |
 | `PORT` | No | HTTP listen port, default `8080` |
 | `OLLAMA_BASE_URL` | No | Default `http://127.0.0.1:11434` |
 | `OLLAMA_MODEL` | No | Default `llama3.2:3b` |
@@ -64,6 +67,14 @@ Do not commit real `.env` files, CV files, API keys, database dumps, or other pr
 | `WEB_ROOT` | No | Static UI directory, default `web` |
 
 Use `cv.example.text` as a template. Keep your real CV in `cv.text` or another path via `CV_PATH`, and keep real CV files out of git.
+
+Default SQLite database locations:
+
+```text
+Windows: %LOCALAPPDATA%\SmarterOLJ\smarter-olj.db
+macOS: ~/Library/Application Support/SmarterOLJ/smarter-olj.db
+Linux: ~/.local/share/smarter-olj/smarter-olj.db
+```
 
 ## Run
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,28 +16,39 @@ import (
 	"github.com/shinichikudo1st/job-scraper/internal/db"
 	"github.com/shinichikudo1st/job-scraper/internal/matcher"
 	"github.com/shinichikudo1st/job-scraper/internal/server"
+	"gorm.io/gorm"
 )
 
 func main() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatalf("Error loading .env file: %v", err)
+		log.Printf("config: .env not loaded, using environment/defaults: %v", err)
 	}
 
-	databaseURL := os.Getenv("DATABASE_URL")
-
-	if databaseURL == "" {
-		log.Fatal("DATABASE_URL environment variable is required")
-	}
-
-	if err := db.RunMigrations(databaseURL); err != nil {
-		log.Fatalf("migration error: %v", err)
-	}
-
-	dbConn, err := db.ConnectDB()
+	dbConfig, err := db.LoadDBConfig()
 	if err != nil {
-		log.Fatalf("database connection error: %v", err)
+		log.Fatalf("database configuration error: %v", err)
 	}
+
+	var dbConn *gorm.DB
+	switch dbConfig.Driver {
+	case db.DriverPostgres:
+		if err := db.RunMigrations(dbConfig.DatabaseURL); err != nil {
+			log.Fatalf("migration error: %v", err)
+		}
+		dbConn, err = db.ConnectConfiguredDB(dbConfig)
+	case db.DriverSQLite:
+		dbConn, err = db.ConnectConfiguredDB(dbConfig)
+		if err == nil {
+			err = db.RunSQLiteMigrations(dbConn)
+		}
+	default:
+		err = fmt.Errorf("unsupported DB_DRIVER %q", dbConfig.Driver)
+	}
+	if err != nil {
+		log.Fatalf("database initialization error: %v", err)
+	}
+	log.Printf("database: connected using %s", dbConfig.Driver)
 
 	ollamaBaseURL := getenvOrDefault("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 	ollamaModel := getenvOrDefault("OLLAMA_MODEL", "llama3.2:3b")
