@@ -10,8 +10,8 @@ CREATE TABLE jobs (
     posted_at       TIMESTAMPTZ,
     scraped_at      TIMESTAMPTZ DEFAULT NOW(),
     is_match        BOOLEAN DEFAULT FALSE,
-    match_score     INT,                        -- 0–100 from Claude
-    match_reason    TEXT,                       -- Claude's explanation
+    match_score     INT,                        -- 0-100 from the configured AI model
+    match_reason    TEXT,                       -- AI model's explanation
     notified        BOOLEAN DEFAULT FALSE       -- whether this job was part of a Discord batch
 );
 

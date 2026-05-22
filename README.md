@@ -1,8 +1,12 @@
-# job-scraper
+# Smarter OLJ
 
-Go service that **matches job postings to your CV** using a local **[Ollama](https://ollama.com/)** model, stores results in **PostgreSQL**, and exposes a small **HTTP API** plus a **web UI** to browse and export matches.
+Smarter OLJ is a Go service that matches OnlineJobsPH job postings to a CV using an AI model, stores match results in PostgreSQL, and exposes a small HTTP API plus a web UI to browse and export matches.
 
-Typical flow: jobs land in Postgres (for example via **n8n** scraping **OnlineJobsPH** or any other ingest). This binary runs **migrations**, a **background matcher** (worker pool + Ollama), and an **HTTP server** on port `8080` by default.
+The current app is a local analyzer service. Jobs are expected to land in Postgres first, for example from n8n, scripts, or another scraper. The service then runs migrations, starts background matcher workers, calls Ollama for scoring, and serves the UI on port `8080` by default.
+
+This repo is being productized into a downloadable local-first job search tool for OnlineJobsPH jobseekers. See [PRODUCTIZATION_PLAN.md](PRODUCTIZATION_PLAN.md) for the planned SQLite database, CV/profile manager, Go scraper, and pluggable AI providers.
+
+Smarter OLJ is independent software and is not affiliated with or endorsed by OnlineJobsPH.
 
 ```mermaid
 flowchart LR
@@ -23,40 +27,43 @@ flowchart LR
 
 ## Features
 
-- **CV fit scoring** — For each pending job, the analyzer sends job text + your CV to Ollama and parses a structured result (`fit`, `score`, `reason`).
-- **“Today” backlog** — The matcher selects rows with `match_score IS NULL` and `posted_at` on the **current calendar day** (server local timezone), then **drains** that set each poll (paged fetches; default page size 100).
-- **REST API** — Paginated matched jobs and CSV/XLSX export.
-- **Web UI** — Static shell under `web/` served at `/`.
-- **Migrations** — Embedded SQL under `internal/db/` (golang-migrate).
+- **CV fit scoring** - For each pending job, the analyzer sends job text and your CV to Ollama and parses a structured result: `fit`, `score`, and `reason`.
+- **Today backlog** - The matcher selects rows with `match_score IS NULL` and `posted_at` on the current calendar day, then drains that set each poll.
+- **REST API** - Paginated matched jobs and CSV/XLSX export.
+- **Web UI** - Static shell under `web/` served at `/`.
+- **Migrations** - Embedded SQL under `internal/db/` through golang-migrate.
 
 ## Requirements
 
-- **Go** (see `go.mod` for the toolchain version)
-- **PostgreSQL** with a `jobs` table compatible with the migrations
-- **Ollama** running and reachable (default `http://127.0.0.1:11434`), with your chosen model pulled (e.g. `llama3.2:3b`)
+- Go, using the version declared in `go.mod`
+- PostgreSQL with a `jobs` table compatible with the migrations
+- Ollama running and reachable, defaulting to `http://127.0.0.1:11434`
+- An Ollama model pulled locally, for example `llama3.2:3b`
 
-## Database schema (summary)
+## Database Schema
 
-Migrations live in `internal/db/`. The `jobs` table includes listing fields, `posted_at`, match fields (`is_match`, `match_score`, `match_reason`), `notified`, and `analyzed_at` (time of last successful analysis write).
+Migrations live in `internal/db/`. The `jobs` table includes listing fields, `posted_at`, match fields (`is_match`, `match_score`, `match_reason`), `notified`, and `analyzed_at`.
 
 ## Configuration
 
-Copy `.env.sample` to `.env` and fill in values. **Do not commit `.env`.**
+Copy `.env.sample` to `.env` and fill in your local values.
+
+Do not commit real `.env` files, CV files, API keys, database dumps, or other private job-search data.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes | Postgres URL for **migrations** (e.g. `postgres://user:pass@host:5432/dbname?sslmode=disable`) |
-| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE`, `DB_TIMEZONE` | Yes | Individual settings used by the app’s **GORM** connection |
-| `PORT` | No | HTTP listen port (default `8080`) |
+| `DATABASE_URL` | Yes | Postgres URL for migrations, for example `postgres://user:pass@localhost:5432/jobscraper?sslmode=disable` |
+| `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE`, `DB_TIMEZONE` | Yes | Individual settings used by the app's GORM connection |
+| `PORT` | No | HTTP listen port, default `8080` |
 | `OLLAMA_BASE_URL` | No | Default `http://127.0.0.1:11434` |
 | `OLLAMA_MODEL` | No | Default `llama3.2:3b` |
-| `OLLAMA_THINK` | No | Set `true` / `1` / `yes` only if your model supports Ollama’s thinking mode |
-| `MATCHER_WORKERS` | No | Concurrent analyzer workers (default `2`) |
-| `MATCHER_BATCH_SIZE` | No | Max rows per DB fetch when draining pending jobs (default `100`) |
-| `CV_PATH` | No | Path to plain-text CV (default `cv.text`) |
-| `WEB_ROOT` | No | Static UI directory (default `web`) |
+| `OLLAMA_THINK` | No | Set `true`, `1`, or `yes` only if your model supports Ollama thinking mode |
+| `MATCHER_WORKERS` | No | Concurrent analyzer workers, default `2` |
+| `MATCHER_BATCH_SIZE` | No | Max rows per DB fetch when draining pending jobs, default `100` |
+| `CV_PATH` | No | Path to plain-text CV, default `cv.text` |
+| `WEB_ROOT` | No | Static UI directory, default `web` |
 
-Use `cv.example.text` as a template; keep your real CV in `cv.text` (or another path via `CV_PATH`) and add `cv.text` to `.gitignore` if you use that filename locally.
+Use `cv.example.text` as a template. Keep your real CV in `cv.text` or another path via `CV_PATH`, and keep real CV files out of git.
 
 ## Run
 
@@ -67,7 +74,7 @@ go run ./cmd/job-scraper
 Build:
 
 ```bash
-go build -o job-scraper ./cmd/job-scraper
+go build -o smarter-olj ./cmd/job-scraper
 ```
 
 ## Docker
@@ -76,17 +83,16 @@ This repo includes a `Dockerfile` and `docker-compose.yml` for running the servi
 
 ### Prerequisites
 
-- Create a local `.env` (copy from `.env.sample`) in the repo root.
+- Create a local `.env` from `.env.sample`.
 - Ensure Ollama is running.
 
-Important: when the app runs *inside Docker*, `127.0.0.1` refers to the container itself.
-If your Ollama instance is running on your host machine, set:
+Important: when the app runs inside Docker, `127.0.0.1` refers to the container itself. If your Ollama instance is running on your host machine, set:
 
 ```bash
 OLLAMA_BASE_URL=http://host.docker.internal:11434
 ```
 
-### Run with Docker Compose
+### Run With Docker Compose
 
 ```bash
 docker compose up --build
@@ -101,15 +107,15 @@ Then open:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/health` | Liveness (`{"status":"ok"}`) |
-| `GET` | `/api/jobs/matched` | Paginated jobs with `is_match = true`. Query: `notified` (bool), `limit` (1–100, default 20), `offset` |
+| `GET` | `/api/health` | Liveness: `{"status":"ok"}` |
+| `GET` | `/api/jobs/matched` | Paginated jobs with `is_match = true`. Query: `notified` (bool), `limit` (1-100, default 20), `offset` |
 | `GET` | `/api/jobs/matched/export?format=csv` or `format=xlsx` | Download up to 10k matched rows |
 
-Open `http://localhost:8080/` for the UI (when `WEB_ROOT` is set and `web/index.html` exists).
+Open `http://localhost:8080/` for the UI when `WEB_ROOT` is set and `web/index.html` exists.
 
-## Project layout
+## Project Layout
 
-```
+```text
 cmd/job-scraper/       # main: migrations, matcher goroutine, HTTP server
 internal/api/          # matched jobs handlers
 internal/db/           # connection, migrations, queries
@@ -120,16 +126,19 @@ internal/server/       # Gin router
 web/                   # static UI
 ```
 
-## Matcher behavior (details)
+## Matcher Behavior
 
-- Poll interval defaults to **5 minutes** between full drain cycles.
-- Each cycle repeatedly fetches up to `MATCHER_BATCH_SIZE` pending “today” jobs until none remain, or until a page yields **no successful updates** (avoids tight loops when every row fails, e.g. Ollama down).
-- Jobs are only candidates while `match_score` is still `NULL`; successful analysis sets `is_match`, `match_score`, `match_reason`, and `analyzed_at`.
+- Poll interval defaults to 5 minutes between full drain cycles.
+- Each cycle repeatedly fetches up to `MATCHER_BATCH_SIZE` pending today jobs until none remain, or until a page yields no successful updates.
+- Jobs are candidates while `match_score` is still `NULL`.
+- Successful analysis sets `is_match`, `match_score`, `match_reason`, and `analyzed_at`.
 
 ## Ingestion
 
-This repository focuses on **analysis and serving**. Feeding `jobs` (respecting `external_id` uniqueness and the column set in migrations) can be done with n8n, scripts, or another scraper—whatever fits your setup.
+This repository currently focuses on analysis and serving. Feeding `jobs`, respecting `external_id` uniqueness and the migration column set, can be done with n8n, scripts, or another scraper.
+
+The productized version will move OnlineJobsPH scraping into Go and avoid storing every scraped job before filtering.
 
 ## License
 
-No license file is included in this repository; add one if you intend to specify terms for reuse.
+This project is licensed under the MIT License. See [LICENSE](LICENSE).

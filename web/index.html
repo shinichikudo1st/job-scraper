@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Matched jobs — job-scraper</title>
+  <title>Matched jobs - Smarter OLJ</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="min-h-screen bg-slate-950 text-slate-100">
   <div class="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
     <header class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-white">Matched jobs</h1>
+        <h1 class="text-2xl font-semibold tracking-tight text-white">Smarter OLJ</h1>
         <p class="mt-1 text-sm text-slate-400">Pulled from <code class="rounded bg-slate-800 px-1 py-0.5 text-xs">/api/jobs/matched</code></p>
       </div>
       <div class="flex flex-wrap gap-2">
@@ -36,7 +36,7 @@
             <input id="date-to" type="date" class="mt-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
           </div>
         </div>
-        <p id="status-line" class="text-sm text-slate-400 lg:ml-auto">Loading…</p>
+        <p id="status-line" class="text-sm text-slate-400 lg:ml-auto">Loading...</p>
       </div>
     </section>
 
@@ -136,7 +136,7 @@
       tr.className = "hover:bg-slate-800/50";
       const title = esc(j.title || "");
       const salary = esc((j.salary != null ? j.salary : "") || "");
-      const score = j.match_score != null ? esc(String(j.match_score)) : "—";
+      const score = j.match_score != null ? esc(String(j.match_score)) : "-";
       const reason = esc((j.match_reason != null ? j.match_reason : "") || "");
       const url = j.url || "#";
       const safeUrl = esc(url);
@@ -152,7 +152,7 @@
 
   async function loadJobs() {
     clearError();
-    statusLine.textContent = "Loading…";
+    statusLine.textContent = "Loading...";
     const url = "/api/jobs/matched?notified=" + notifiedParam() + "&limit=100&offset=0";
     try {
       const res = await fetch(url, { headers: { Accept: "application/json" } });
