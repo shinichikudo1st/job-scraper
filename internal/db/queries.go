@@ -1,11 +1,15 @@
 package db
 
 import (
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/shinichikudo1st/job-scraper/internal/models"
 	"gorm.io/gorm"
 )
+
+var ErrProfileNotFound = errors.New("active profile not found")
 
 func FetchPendingJobs(conn *gorm.DB, limit int, postedAfter time.Time) ([]models.Job, error) {
 	if limit <= 0 {
@@ -76,4 +80,95 @@ func GetMatchedJobsPaginated(conn *gorm.DB, notified bool, limit, offset int) ([
 	}
 
 	return jobs, total, nil
+}
+
+func GetActiveProfile(conn *gorm.DB) (*models.Profile, error) {
+	var profile models.Profile
+	err := conn.
+		Where("is_active = ?", true).
+		Order("updated_at DESC, id DESC").
+		First(&profile).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrProfileNotFound
+		}
+		return nil, err
+	}
+	return &profile, nil
+}
+
+func UpsertActiveProfile(conn *gorm.DB, name, cvText string) (*models.Profile, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "Default"
+	}
+	cvText = strings.TrimSpace(cvText)
+	if cvText == "" {
+		return nil, errors.New("cv text is required")
+	}
+
+	var saved models.Profile
+	err := conn.Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UTC()
+
+		var existing models.Profile
+		err := tx.
+			Where("is_active = ?", true).
+			Order("updated_at DESC, id DESC").
+			First(&existing).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		if existing.ID != 0 {
+			existing.Name = name
+			existing.CVText = cvText
+			existing.IsActive = true
+			existing.UpdatedAt = now
+			if err := tx.Save(&existing).Error; err != nil {
+				return err
+			}
+			saved = existing
+			return nil
+		}
+
+		if err := tx.Model(&models.Profile{}).Where("is_active = ?", true).Update("is_active", false).Error; err != nil {
+			return err
+		}
+		profile := models.Profile{
+			Name:      name,
+			CVText:    cvText,
+			IsActive:  true,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		if err := tx.Create(&profile).Error; err != nil {
+			return err
+		}
+		saved = profile
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &saved, nil
+}
+
+type GormProfileCVProvider struct {
+	DB *gorm.DB
+}
+
+func (p *GormProfileCVProvider) ActiveCVText() (string, error) {
+	if p == nil || p.DB == nil {
+		return "", errors.New("profile cv provider is not configured")
+	}
+	profile, err := GetActiveProfile(p.DB)
+	if err != nil {
+		return "", err
+	}
+	cvText := strings.TrimSpace(profile.CVText)
+	if cvText == "" {
+		return "", errors.New("active profile cv text is empty")
+	}
+	return cvText, nil
 }

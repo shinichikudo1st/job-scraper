@@ -63,10 +63,10 @@ Do not commit real `.env` files, CV files, API keys, database dumps, or other pr
 | `OLLAMA_THINK` | No | Set `true`, `1`, or `yes` only if your model supports Ollama thinking mode |
 | `MATCHER_WORKERS` | No | Concurrent analyzer workers, default `2` |
 | `MATCHER_BATCH_SIZE` | No | Max rows per DB fetch when draining pending jobs, default `100` |
-| `CV_PATH` | No | Path to plain-text CV, default `cv.text` |
+| `CV_PATH` | No | Optional development fallback path to a plain-text CV. The product flow uses the active CV profile saved through the UI |
 | `WEB_ROOT` | No | Optional static UI directory for development. Leave empty to use the embedded UI |
 
-Use `cv.example.text` as a template. Keep your real CV in `cv.text` or another path via `CV_PATH`, and keep real CV files out of git.
+Use the **Active CV profile** panel in the UI to paste your CV or upload a `.txt` file. The saved profile is stored in the local database and used by the matcher. `CV_PATH` remains available as a development fallback; keep real CV files out of git.
 
 Default SQLite database locations:
 
@@ -119,6 +119,8 @@ Then open:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | Liveness: `{"status":"ok"}` |
+| `GET` | `/api/profile/active` | Read the active CV profile |
+| `POST` | `/api/profile/active` | Save the active CV profile with JSON body: `{"name":"Main","cv_text":"..."}` |
 | `GET` | `/api/jobs/matched` | Paginated jobs with `is_match = true`. Query: `notified` (bool), `limit` (1-100, default 20), `offset` |
 | `GET` | `/api/jobs/matched/export?format=csv` or `format=xlsx` | Download up to 10k matched rows |
 

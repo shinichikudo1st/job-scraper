@@ -29,6 +29,8 @@ func NewRouter(db *gorm.DB, webRoot string) *gin.Engine {
 	if db != nil {
 		reader := &api.GormMatchedJobsReader{DB: db}
 		api.RegisterMatchedJobsRoutes(r, reader)
+		profileStore := &api.GormProfileStore{DB: db}
+		api.RegisterProfileRoutes(r, profileStore)
 	}
 
 	if webRoot == "" {

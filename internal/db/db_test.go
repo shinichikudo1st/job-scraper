@@ -77,4 +77,49 @@ func TestRunSQLiteMigrationsCreatesJobsTable(t *testing.T) {
 	if tableName != "jobs" {
 		t.Fatalf("jobs table missing, got %q", tableName)
 	}
+
+	tableName = ""
+	err = conn.Raw("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", "profiles").Scan(&tableName).Error
+	if err != nil {
+		t.Fatalf("query sqlite profile schema: %v", err)
+	}
+	if tableName != "profiles" {
+		t.Fatalf("profiles table missing, got %q", tableName)
+	}
+}
+
+func TestUpsertAndGetActiveProfile(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "smarter-olj.db")
+	conn, err := db.ConnectConfiguredDB(&db.DBConfig{
+		Driver:     db.DriverSQLite,
+		SQLitePath: dbPath,
+	})
+	if err != nil {
+		t.Fatalf("ConnectConfiguredDB() error = %v", err)
+	}
+	sqlDB, err := conn.DB()
+	if err != nil {
+		t.Fatalf("DB() error = %v", err)
+	}
+	defer sqlDB.Close()
+
+	if err := db.RunSQLiteMigrations(conn); err != nil {
+		t.Fatalf("RunSQLiteMigrations() error = %v", err)
+	}
+
+	profile, err := db.UpsertActiveProfile(conn, "Main", "Go developer")
+	if err != nil {
+		t.Fatalf("UpsertActiveProfile() error = %v", err)
+	}
+	if profile.ID == 0 || !profile.IsActive {
+		t.Fatalf("unexpected saved profile: %+v", profile)
+	}
+
+	got, err := db.GetActiveProfile(conn)
+	if err != nil {
+		t.Fatalf("GetActiveProfile() error = %v", err)
+	}
+	if got.Name != "Main" || got.CVText != "Go developer" {
+		t.Fatalf("unexpected active profile: %+v", got)
+	}
 }

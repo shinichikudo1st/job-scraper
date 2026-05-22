@@ -15,9 +15,14 @@ type promptGenerator interface {
 	Generate(prompt string) (string, error)
 }
 
+type CVProvider interface {
+	ActiveCVText() (string, error)
+}
+
 type Analyzer struct {
-	client promptGenerator
-	CVText string
+	client     promptGenerator
+	CVText     string
+	CVProvider CVProvider
 }
 
 type JobAnalyzer interface {
@@ -56,6 +61,36 @@ func NewAnalyzer(client promptGenerator, cvPath string) (*Analyzer, error) {
 	}, nil
 }
 
+func NewAnalyzerWithCVProvider(client promptGenerator, cvPath string, cvProvider CVProvider) (*Analyzer, error) {
+	if client == nil {
+		return nil, errors.New("analyzer client is required")
+	}
+	cv, err := LoadOptionalCVText(cvPath)
+	if err != nil {
+		return nil, err
+	}
+	return &Analyzer{
+		client:     client,
+		CVText:     cv,
+		CVProvider: cvProvider,
+	}, nil
+}
+
+func LoadOptionalCVText(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read cv file: %w", err)
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
 func (a *Analyzer) AnalyzeJob(job *models.Job, cv string) (*MatchResult, error) {
 	if a == nil || a.client == nil {
 		return nil, errors.New("analyzer is not initialized")
@@ -65,6 +100,13 @@ func (a *Analyzer) AnalyzeJob(job *models.Job, cv string) (*MatchResult, error) 
 	}
 
 	cvText := strings.TrimSpace(cv)
+	if cvText == "" && a.CVProvider != nil {
+		profileCV, err := a.CVProvider.ActiveCVText()
+		if err != nil {
+			return nil, fmt.Errorf("load active profile cv: %w", err)
+		}
+		cvText = strings.TrimSpace(profileCV)
+	}
 	if cvText == "" {
 		cvText = strings.TrimSpace(a.CVText)
 	}

@@ -11,7 +11,7 @@
     <header class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h1 class="text-2xl font-semibold tracking-tight text-white">Smarter OLJ</h1>
-        <p class="mt-1 text-sm text-slate-400">Pulled from <code class="rounded bg-slate-800 px-1 py-0.5 text-xs">/api/jobs/matched</code></p>
+        <p class="mt-1 text-sm text-slate-400">Matched OnlineJobsPH roles scored against your active CV profile.</p>
       </div>
       <div class="flex flex-wrap gap-2">
         <a id="btn-csv" href="#" class="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">Download CSV</a>
@@ -19,6 +19,26 @@
         <button id="btn-refresh" type="button" class="inline-flex items-center rounded-lg border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-medium hover:bg-slate-800">Refresh</button>
       </div>
     </header>
+
+    <section class="mb-6 rounded-xl border border-slate-800 bg-slate-900/50 p-4 shadow-sm">
+      <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-white">Active CV profile</h2>
+          <p id="profile-status" class="mt-1 text-xs text-slate-400">Loading profile...</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <label class="inline-flex cursor-pointer items-center rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm font-medium hover:bg-slate-800">
+            Upload TXT
+            <input id="profile-upload" type="file" accept=".txt,text/plain" class="hidden" />
+          </label>
+          <button id="btn-save-profile" type="button" class="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">Save CV</button>
+        </div>
+      </div>
+      <div class="grid gap-3">
+        <input id="profile-name" type="text" class="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="Profile name" />
+        <textarea id="profile-cv" rows="7" class="min-h-40 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="Paste your plain-text CV here"></textarea>
+      </div>
+    </section>
 
     <section class="mb-6 rounded-xl border border-slate-800 bg-slate-900/50 p-4 shadow-sm">
       <div class="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
@@ -70,6 +90,11 @@
   const btnRefresh = document.getElementById("btn-refresh");
   const btnCsv = document.getElementById("btn-csv");
   const btnXlsx = document.getElementById("btn-xlsx");
+  const profileStatus = document.getElementById("profile-status");
+  const profileName = document.getElementById("profile-name");
+  const profileCv = document.getElementById("profile-cv");
+  const profileUpload = document.getElementById("profile-upload");
+  const btnSaveProfile = document.getElementById("btn-save-profile");
 
   let rawItems = [];
 
@@ -150,6 +175,61 @@
     });
   }
 
+  function setProfileStatus(msg, isError) {
+    profileStatus.textContent = msg;
+    profileStatus.className = "mt-1 text-xs " + (isError ? "text-red-300" : "text-slate-400");
+  }
+
+  async function loadProfile() {
+    setProfileStatus("Loading profile...", false);
+    try {
+      const res = await fetch("/api/profile/active", { headers: { Accept: "application/json" } });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || res.statusText);
+      }
+      const data = await res.json();
+      if (!data.configured) {
+        profileName.value = "Default";
+        profileCv.value = "";
+        setProfileStatus("No CV saved yet.", false);
+        return;
+      }
+      profileName.value = data.name || "Default";
+      profileCv.value = data.cv_text || "";
+      setProfileStatus("Saved profile: " + (data.name || "Default"), false);
+    } catch (e) {
+      setProfileStatus("Failed to load profile: " + (e && e.message ? e.message : String(e)), true);
+    }
+  }
+
+  async function saveProfile() {
+    const cvText = profileCv.value.trim();
+    if (!cvText) {
+      setProfileStatus("Paste or upload your CV first.", true);
+      return;
+    }
+    setProfileStatus("Saving profile...", false);
+    try {
+      const res = await fetch("/api/profile/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          name: profileName.value.trim() || "Default",
+          cv_text: cvText
+        })
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || res.statusText);
+      }
+      const data = await res.json();
+      setProfileStatus("Saved profile: " + (data.name || "Default"), false);
+    } catch (e) {
+      setProfileStatus("Failed to save profile: " + (e && e.message ? e.message : String(e)), true);
+    }
+  }
+
   async function loadJobs() {
     clearError();
     statusLine.textContent = "Loading...";
@@ -172,6 +252,23 @@
   }
 
   btnRefresh.addEventListener("click", loadJobs);
+  btnSaveProfile.addEventListener("click", saveProfile);
+  profileUpload.addEventListener("change", async function () {
+    const file = profileUpload.files && profileUpload.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      profileCv.value = text.trim();
+      if (!profileName.value.trim()) {
+        profileName.value = file.name.replace(/\.[^.]+$/, "") || "Default";
+      }
+      setProfileStatus("Loaded " + file.name + ". Save to make it active.", false);
+    } catch (e) {
+      setProfileStatus("Failed to read file: " + (e && e.message ? e.message : String(e)), true);
+    } finally {
+      profileUpload.value = "";
+    }
+  });
   filterNotified.addEventListener("change", loadJobs);
   dateFrom.addEventListener("change", function () { renderRows(rawItems); });
   dateTo.addEventListener("change", function () { renderRows(rawItems); });
@@ -185,6 +282,7 @@
     window.location.href = exportHref("xlsx");
   });
 
+  loadProfile();
   loadJobs();
 })();
   </script>

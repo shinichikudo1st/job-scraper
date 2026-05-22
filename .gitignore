@@ -1,6 +1,8 @@
 *.env
 cv.text
 job-scraper.exe
+smarter-olj
+smarter-olj.exe
 *.db
 *.db-*
 test_ollama.json

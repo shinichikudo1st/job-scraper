@@ -81,6 +81,15 @@ func RunSQLiteMigrations(conn *gorm.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_jobs_is_match ON jobs(is_match)`,
 		`CREATE INDEX IF NOT EXISTS idx_jobs_notified ON jobs(notified)`,
+		`CREATE TABLE IF NOT EXISTS profiles (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			cv_text TEXT NOT NULL,
+			is_active BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_profiles_is_active ON profiles(is_active)`,
 	}
 
 	for _, stmt := range statements {

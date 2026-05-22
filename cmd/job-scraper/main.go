@@ -58,7 +58,8 @@ func main() {
 
 	ollamaClient := matcher.NewOllamaClient(ollamaBaseURL, ollamaModel)
 	ollamaClient.Think = envBoolTrue(os.Getenv("OLLAMA_THINK"))
-	analyzer, err := matcher.NewAnalyzer(ollamaClient, cvPath)
+	cvProvider := &db.GormProfileCVProvider{DB: dbConn}
+	analyzer, err := matcher.NewAnalyzerWithCVProvider(ollamaClient, cvPath, cvProvider)
 	if err != nil {
 		log.Fatalf("analyzer initialization error: %v", err)
 	}

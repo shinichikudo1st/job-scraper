@@ -24,6 +24,18 @@ func (f *fakeGenerator) Generate(prompt string) (string, error) {
 	return f.response, nil
 }
 
+type fakeCVProvider struct {
+	cv  string
+	err error
+}
+
+func (f *fakeCVProvider) ActiveCVText() (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.cv, nil
+}
+
 func TestLoadCVTextSuccess(t *testing.T) {
 	tmpDir := t.TempDir()
 	cvPath := filepath.Join(tmpDir, "cv.txt")
@@ -119,5 +131,25 @@ func TestNewAnalyzerLoadsCV(t *testing.T) {
 	}
 	if a.CVText != "CV from file" {
 		t.Fatalf("unexpected CV text loaded: %q", a.CVText)
+	}
+}
+
+func TestAnalyzeJobUsesCVProvider(t *testing.T) {
+	job := &models.Job{
+		Title: "Backend Engineer",
+		URL:   "https://example.com",
+	}
+	fake := &fakeGenerator{response: `{"fit":true,"score":80,"reason":"Relevant backend experience."}`}
+	analyzer := &Analyzer{
+		client:     fake,
+		CVProvider: &fakeCVProvider{cv: "Profile CV text"},
+	}
+
+	res, err := analyzer.AnalyzeJob(job, "")
+	if err != nil {
+		t.Fatalf("AnalyzeJob() error = %v", err)
+	}
+	if !res.Fit || !strings.Contains(fake.lastPrompt, "Profile CV text") {
+		t.Fatalf("provider CV was not used, result=%+v prompt=%q", res, fake.lastPrompt)
 	}
 }
