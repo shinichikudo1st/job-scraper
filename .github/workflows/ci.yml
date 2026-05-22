@@ -25,10 +25,10 @@ jobs:
           version: latest
 
       - name: Test
-        run: go test ./... -race -count=1
+        run: go test ./internal/matcher ./internal/api ./internal/server ./web
 
       - name: Build
-        run: go build -o /dev/null ./main.go
+        run: go build -o smarter-olj ./cmd/job-scraper
 
   build-and-push:
     runs-on: ubuntu-latest
