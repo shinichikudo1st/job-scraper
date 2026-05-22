@@ -6,11 +6,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/shinichikudo1st/job-scraper/internal/api"
+	webassets "github.com/shinichikudo1st/job-scraper/web"
 	"gorm.io/gorm"
 )
 
 // NewRouter registers API routes and the matcher UI.
-// webRoot is the directory containing index.html (e.g. "web"). If empty, no UI routes are mounted.
+// webRoot is an optional development override directory containing index.html.
+// If webRoot is empty, the embedded UI is served.
 // db may be nil in tests; matched-jobs routes are only registered when db is non-nil.
 //
 // Note: Gin's Static("/", ...) catch-all conflicts with /api in recent Gin versions, so we serve
@@ -29,7 +31,11 @@ func NewRouter(db *gorm.DB, webRoot string) *gin.Engine {
 		api.RegisterMatchedJobsRoutes(r, reader)
 	}
 
-	if webRoot != "" {
+	if webRoot == "" {
+		r.GET("/", func(c *gin.Context) {
+			c.Data(http.StatusOK, "text/html; charset=utf-8", webassets.IndexHTML())
+		})
+	} else {
 		root := webRoot
 		if abs, err := filepath.Abs(webRoot); err == nil {
 			root = abs

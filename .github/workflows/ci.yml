@@ -14,7 +14,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: go.mod
+          cache: true
 
       - name: Install dependencies
         run: go mod download
@@ -25,7 +26,7 @@ jobs:
           version: latest
 
       - name: Test
-        run: go test ./internal/matcher ./internal/api ./internal/server ./web
+        run: go test ./...
 
       - name: Build
         run: go build -o smarter-olj ./cmd/job-scraper
@@ -52,7 +53,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/job-scraper
+          images: ghcr.io/${{ github.repository_owner }}/smarter-olj
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-

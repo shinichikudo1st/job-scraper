@@ -53,6 +53,27 @@ func TestNewRouter_StaticServesIndexHTML(t *testing.T) {
 	}
 }
 
+func TestNewRouter_EmbeddedServesIndexHTML(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := NewRouter(nil, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `id="jobs-table"`) {
+		t.Fatalf("response does not look like embedded index.html (missing jobs-table)")
+	}
+	if !strings.Contains(body, "Smarter OLJ") {
+		t.Fatalf("response missing product name")
+	}
+}
+
 func TestNewRouter_NoMatchedAPIWhenDBNil(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := NewRouter(nil, "")

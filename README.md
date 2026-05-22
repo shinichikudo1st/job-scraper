@@ -64,7 +64,7 @@ Do not commit real `.env` files, CV files, API keys, database dumps, or other pr
 | `MATCHER_WORKERS` | No | Concurrent analyzer workers, default `2` |
 | `MATCHER_BATCH_SIZE` | No | Max rows per DB fetch when draining pending jobs, default `100` |
 | `CV_PATH` | No | Path to plain-text CV, default `cv.text` |
-| `WEB_ROOT` | No | Static UI directory, default `web` |
+| `WEB_ROOT` | No | Optional static UI directory for development. Leave empty to use the embedded UI |
 
 Use `cv.example.text` as a template. Keep your real CV in `cv.text` or another path via `CV_PATH`, and keep real CV files out of git.
 
@@ -122,7 +122,7 @@ Then open:
 | `GET` | `/api/jobs/matched` | Paginated jobs with `is_match = true`. Query: `notified` (bool), `limit` (1-100, default 20), `offset` |
 | `GET` | `/api/jobs/matched/export?format=csv` or `format=xlsx` | Download up to 10k matched rows |
 
-Open `http://localhost:8080/` for the UI when `WEB_ROOT` is set and `web/index.html` exists.
+Open `http://localhost:8080/` for the UI. The binary serves the embedded UI by default. Set `WEB_ROOT=web` during development if you want to serve `web/index.html` from disk.
 
 ## Project Layout
 
@@ -134,7 +134,7 @@ internal/export/       # CSV / XLSX
 internal/matcher/      # Ollama client, analyzer, polling workers
 internal/models/       # Job model
 internal/server/       # Gin router
-web/                   # static UI
+web/                   # static UI embedded into the binary
 ```
 
 ## Matcher Behavior

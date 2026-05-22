@@ -69,7 +69,7 @@ func main() {
 	go matcher.RunMatcher(ctx, dbConn, analyzer, matcherWorkers, matcherBatchSize)
 	log.Printf("matcher: started (workers=%d, batch_size=%d, model=%s, base_url=%s, ollama_think=%v)", matcherWorkers, matcherBatchSize, ollamaModel, ollamaBaseURL, ollamaClient.Think)
 
-	webRoot := getenvOrDefault("WEB_ROOT", "web")
+	webRoot := os.Getenv("WEB_ROOT")
 	router := server.NewRouter(dbConn, webRoot)
 
 	port := os.Getenv("PORT")
