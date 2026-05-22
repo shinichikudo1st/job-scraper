@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shinichikudo1st/job-scraper/internal/ai"
 	"github.com/shinichikudo1st/job-scraper/internal/api"
 	webassets "github.com/shinichikudo1st/job-scraper/web"
 	"gorm.io/gorm"
@@ -17,7 +18,7 @@ import (
 //
 // Note: Gin's Static("/", ...) catch-all conflicts with /api in recent Gin versions, so we serve
 // the shell page explicitly at GET /.
-func NewRouter(db *gorm.DB, webRoot string) *gin.Engine {
+func NewRouter(db *gorm.DB, webRoot string, aiStores ...*ai.ConfigStore) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 	r.RedirectTrailingSlash = false
@@ -31,6 +32,9 @@ func NewRouter(db *gorm.DB, webRoot string) *gin.Engine {
 		api.RegisterMatchedJobsRoutes(r, reader)
 		profileStore := &api.GormProfileStore{DB: db}
 		api.RegisterProfileRoutes(r, profileStore)
+	}
+	if len(aiStores) > 0 && aiStores[0] != nil {
+		api.RegisterAISettingsRoutes(r, aiStores[0])
 	}
 
 	if webRoot == "" {

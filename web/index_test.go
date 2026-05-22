@@ -28,6 +28,12 @@ func TestIndexHTMLContainsRequiredHooks(t *testing.T) {
 		`id="profile-upload"`,
 		`id="btn-save-profile"`,
 		"/api/profile/active",
+		`id="ai-provider"`,
+		`id="ai-model"`,
+		`id="ai-base-url"`,
+		`id="ai-api-key"`,
+		`id="btn-save-ai"`,
+		"/api/ai/settings",
 		"tailwindcss.com",
 	}
 	for _, sub := range required {

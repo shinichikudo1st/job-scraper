@@ -41,6 +41,31 @@
     </section>
 
     <section class="mb-6 rounded-xl border border-slate-800 bg-slate-900/50 p-4 shadow-sm">
+      <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-white">AI provider</h2>
+          <p id="ai-status" class="mt-1 text-xs text-slate-400">Loading AI settings...</p>
+        </div>
+        <button id="btn-save-ai" type="button" class="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500">Use Provider</button>
+      </div>
+      <div class="grid gap-3 md:grid-cols-2">
+        <select id="ai-provider" class="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white">
+          <option value="ollama">Ollama</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="openai_compatible">OpenAI-compatible</option>
+        </select>
+        <input id="ai-model" type="text" class="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="Model name" />
+        <input id="ai-base-url" type="text" class="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="Base URL" />
+        <input id="ai-api-key" type="password" autocomplete="off" class="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="API key for this session" />
+        <label class="flex items-center gap-2 text-sm text-slate-300">
+          <input id="ai-think" type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500 focus:ring-sky-500" />
+          <span>Thinking mode</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="mb-6 rounded-xl border border-slate-800 bg-slate-900/50 p-4 shadow-sm">
       <div class="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
         <label class="flex items-center gap-2 text-sm">
           <input id="filter-notified" type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500" />
@@ -95,6 +120,13 @@
   const profileCv = document.getElementById("profile-cv");
   const profileUpload = document.getElementById("profile-upload");
   const btnSaveProfile = document.getElementById("btn-save-profile");
+  const aiStatus = document.getElementById("ai-status");
+  const aiProvider = document.getElementById("ai-provider");
+  const aiModel = document.getElementById("ai-model");
+  const aiBaseUrl = document.getElementById("ai-base-url");
+  const aiApiKey = document.getElementById("ai-api-key");
+  const aiThink = document.getElementById("ai-think");
+  const btnSaveAi = document.getElementById("btn-save-ai");
 
   let rawItems = [];
 
@@ -180,6 +212,88 @@
     profileStatus.className = "mt-1 text-xs " + (isError ? "text-red-300" : "text-slate-400");
   }
 
+  function setAIStatus(msg, isError) {
+    aiStatus.textContent = msg;
+    aiStatus.className = "mt-1 text-xs " + (isError ? "text-red-300" : "text-slate-400");
+  }
+
+  function providerNeedsKey(provider) {
+    return provider === "openai" || provider === "anthropic";
+  }
+
+  function updateAIPlaceholders() {
+    const provider = aiProvider.value;
+    if (provider === "ollama") {
+      aiBaseUrl.placeholder = "http://127.0.0.1:11434";
+      aiModel.placeholder = "llama3.2:3b";
+      aiApiKey.placeholder = "No API key needed";
+    } else if (provider === "openai") {
+      aiBaseUrl.placeholder = "https://api.openai.com/v1";
+      aiModel.placeholder = "gpt-4.1-mini";
+      aiApiKey.placeholder = "OpenAI API key for this session";
+    } else if (provider === "anthropic") {
+      aiBaseUrl.placeholder = "https://api.anthropic.com";
+      aiModel.placeholder = "claude-3-5-haiku-latest";
+      aiApiKey.placeholder = "Anthropic API key for this session";
+    } else {
+      aiBaseUrl.placeholder = "http://127.0.0.1:1234/v1";
+      aiModel.placeholder = "local-model-name";
+      aiApiKey.placeholder = "Optional API key";
+    }
+  }
+
+  async function loadAISettings() {
+    setAIStatus("Loading AI settings...", false);
+    try {
+      const res = await fetch("/api/ai/settings", { headers: { Accept: "application/json" } });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || res.statusText);
+      }
+      const data = await res.json();
+      aiProvider.value = data.provider || "ollama";
+      aiModel.value = data.model || "";
+      aiBaseUrl.value = data.base_url || "";
+      aiThink.checked = !!data.think;
+      aiApiKey.value = "";
+      updateAIPlaceholders();
+      setAIStatus("Using " + (data.provider || "ollama") + " / " + (data.model || "default") + (data.has_api_key ? " with session key" : ""), false);
+    } catch (e) {
+      setAIStatus("Failed to load AI settings: " + (e && e.message ? e.message : String(e)), true);
+    }
+  }
+
+  async function saveAISettings() {
+    const provider = aiProvider.value;
+    if (providerNeedsKey(provider) && !aiApiKey.value.trim()) {
+      setAIStatus("Enter an API key for this session.", true);
+      return;
+    }
+    setAIStatus("Updating AI provider...", false);
+    try {
+      const res = await fetch("/api/ai/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          provider: provider,
+          base_url: aiBaseUrl.value.trim(),
+          model: aiModel.value.trim(),
+          api_key: aiApiKey.value.trim(),
+          think: aiThink.checked
+        })
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || res.statusText);
+      }
+      const data = await res.json();
+      aiApiKey.value = "";
+      setAIStatus("Using " + data.provider + " / " + data.model + (data.has_api_key ? " with session key" : ""), false);
+    } catch (e) {
+      setAIStatus("Failed to update AI provider: " + (e && e.message ? e.message : String(e)), true);
+    }
+  }
+
   async function loadProfile() {
     setProfileStatus("Loading profile...", false);
     try {
@@ -253,6 +367,8 @@
 
   btnRefresh.addEventListener("click", loadJobs);
   btnSaveProfile.addEventListener("click", saveProfile);
+  btnSaveAi.addEventListener("click", saveAISettings);
+  aiProvider.addEventListener("change", updateAIPlaceholders);
   profileUpload.addEventListener("change", async function () {
     const file = profileUpload.files && profileUpload.files[0];
     if (!file) return;
@@ -283,6 +399,7 @@
   });
 
   loadProfile();
+  loadAISettings();
   loadJobs();
 })();
   </script>

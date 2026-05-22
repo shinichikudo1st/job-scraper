@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/shinichikudo1st/job-scraper/internal/ai"
 	"github.com/shinichikudo1st/job-scraper/internal/db"
 	"github.com/shinichikudo1st/job-scraper/internal/matcher"
 	"github.com/shinichikudo1st/job-scraper/internal/server"
@@ -50,16 +51,18 @@ func main() {
 	}
 	log.Printf("database: connected using %s", dbConfig.Driver)
 
-	ollamaBaseURL := getenvOrDefault("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-	ollamaModel := getenvOrDefault("OLLAMA_MODEL", "llama3.2:3b")
+	aiStore, err := ai.NewConfigStore(ai.LoadConfigFromEnv())
+	if err != nil {
+		log.Fatalf("ai configuration error: %v", err)
+	}
+	aiConfig := aiStore.Get()
 	matcherWorkers := getenvIntOrDefault("MATCHER_WORKERS", 2)
 	matcherBatchSize := getenvIntOrDefault("MATCHER_BATCH_SIZE", 100)
 	cvPath := getenvOrDefault("CV_PATH", "cv.text")
 
-	ollamaClient := matcher.NewOllamaClient(ollamaBaseURL, ollamaModel)
-	ollamaClient.Think = envBoolTrue(os.Getenv("OLLAMA_THINK"))
+	aiClient := &ai.DynamicClient{Store: aiStore}
 	cvProvider := &db.GormProfileCVProvider{DB: dbConn}
-	analyzer, err := matcher.NewAnalyzerWithCVProvider(ollamaClient, cvPath, cvProvider)
+	analyzer, err := matcher.NewAnalyzerWithCVProvider(aiClient, cvPath, cvProvider)
 	if err != nil {
 		log.Fatalf("analyzer initialization error: %v", err)
 	}
@@ -68,10 +71,10 @@ func main() {
 	defer cancel()
 
 	go matcher.RunMatcher(ctx, dbConn, analyzer, matcherWorkers, matcherBatchSize)
-	log.Printf("matcher: started (workers=%d, batch_size=%d, model=%s, base_url=%s, ollama_think=%v)", matcherWorkers, matcherBatchSize, ollamaModel, ollamaBaseURL, ollamaClient.Think)
+	log.Printf("matcher: started (workers=%d, batch_size=%d, ai_provider=%s, model=%s, base_url=%s)", matcherWorkers, matcherBatchSize, aiConfig.Provider, aiConfig.Model, aiConfig.BaseURL)
 
 	webRoot := os.Getenv("WEB_ROOT")
-	router := server.NewRouter(dbConn, webRoot)
+	router := server.NewRouter(dbConn, webRoot, aiStore)
 
 	port := os.Getenv("PORT")
 	if port == "" {

@@ -58,15 +58,19 @@ Do not commit real `.env` files, CV files, API keys, database dumps, or other pr
 | `DATABASE_URL` | Postgres only | Postgres URL for migrations, for example `postgres://user:pass@localhost:5432/jobscraper?sslmode=disable` |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE`, `DB_TIMEZONE` | Postgres only | Individual settings used by the app's GORM connection |
 | `PORT` | No | HTTP listen port, default `8080` |
-| `OLLAMA_BASE_URL` | No | Default `http://127.0.0.1:11434` |
-| `OLLAMA_MODEL` | No | Default `llama3.2:3b` |
-| `OLLAMA_THINK` | No | Set `true`, `1`, or `yes` only if your model supports Ollama thinking mode |
+| `AI_PROVIDER` | No | `ollama`, `openai`, `anthropic`, or `openai_compatible`. Default `ollama` |
+| `AI_BASE_URL` | No | Provider base URL. Defaults to Ollama/OpenAI/Anthropic defaults when omitted |
+| `AI_MODEL` | No | Model name. Default depends on provider |
+| `AI_API_KEY` | Cloud providers only | API key loaded into memory from the environment. UI-entered keys are session-only |
+| `AI_THINK` | No | Set `true`, `1`, or `yes` only if your Ollama model supports thinking mode |
 | `MATCHER_WORKERS` | No | Concurrent analyzer workers, default `2` |
 | `MATCHER_BATCH_SIZE` | No | Max rows per DB fetch when draining pending jobs, default `100` |
 | `CV_PATH` | No | Optional development fallback path to a plain-text CV. The product flow uses the active CV profile saved through the UI |
 | `WEB_ROOT` | No | Optional static UI directory for development. Leave empty to use the embedded UI |
 
 Use the **Active CV profile** panel in the UI to paste your CV or upload a `.txt` file. The saved profile is stored in the local database and used by the matcher. `CV_PATH` remains available as a development fallback; keep real CV files out of git.
+
+Use the **AI provider** panel in the UI to select Ollama, OpenAI, Anthropic, or an OpenAI-compatible server. API keys entered in the UI are kept in memory for the current app session only. They are not stored in SQLite.
 
 Default SQLite database locations:
 
@@ -100,7 +104,7 @@ This repo includes a `Dockerfile` and `docker-compose.yml` for running the servi
 Important: when the app runs inside Docker, `127.0.0.1` refers to the container itself. If your Ollama instance is running on your host machine, set:
 
 ```bash
-OLLAMA_BASE_URL=http://host.docker.internal:11434
+AI_BASE_URL=http://host.docker.internal:11434
 ```
 
 ### Run With Docker Compose
@@ -119,6 +123,8 @@ Then open:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | Liveness: `{"status":"ok"}` |
+| `GET` | `/api/ai/settings` | Read current in-memory AI provider settings without exposing API keys |
+| `POST` | `/api/ai/settings` | Update in-memory AI provider settings for the current app session |
 | `GET` | `/api/profile/active` | Read the active CV profile |
 | `POST` | `/api/profile/active` | Save the active CV profile with JSON body: `{"name":"Main","cv_text":"..."}` |
 | `GET` | `/api/jobs/matched` | Paginated jobs with `is_match = true`. Query: `notified` (bool), `limit` (1-100, default 20), `offset` |
