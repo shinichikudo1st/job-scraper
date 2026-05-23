@@ -15,6 +15,7 @@ type fakeRepo struct {
 
 	mu      sync.Mutex
 	updated map[int]MatchResult
+	failed  map[int]string
 }
 
 func (f *fakeRepo) FetchPendingJobs(limit int, postedAfter time.Time) ([]models.Job, error) {
@@ -47,6 +48,16 @@ func (f *fakeRepo) UpdateJobMatch(id int, isMatch bool, score int, reason string
 		Score:  score,
 		Reason: reason,
 	}
+	return nil
+}
+
+func (f *fakeRepo) MarkJobAnalysisFailed(id int, reason string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failed == nil {
+		f.failed = make(map[int]string)
+	}
+	f.failed[id] = reason
 	return nil
 }
 
@@ -122,6 +133,9 @@ func TestRunMatcherBatchContinuesOnAnalyzeError(t *testing.T) {
 	}
 	if _, exists := repo.updated[10]; exists {
 		t.Fatalf("job 10 should not be updated when analyze fails")
+	}
+	if _, exists := repo.failed[10]; !exists {
+		t.Fatalf("job 10 should be marked failed when analysis fails")
 	}
 	if _, exists := repo.updated[11]; !exists {
 		t.Fatalf("job 11 should still be updated")

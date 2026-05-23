@@ -19,7 +19,8 @@ func FetchPendingJobs(conn *gorm.DB, limit int, postedAfter time.Time) ([]models
 	var jobs []models.Job
 	err := conn.
 		Where("match_score IS NULL").
-		Where("posted_at >= ?", postedAfter).
+		Where("status = ?", "queued").
+		Where("(posted_at IS NULL OR posted_at >= ?)", postedAfter).
 		Order("posted_at DESC").
 		Limit(limit).
 		Find(&jobs).Error
@@ -33,14 +34,79 @@ func FetchPendingJobs(conn *gorm.DB, limit int, postedAfter time.Time) ([]models
 func UpdateJobMatch(conn *gorm.DB, id int, isMatch bool, score int, reason string) error {
 	now := time.Now().UTC()
 
+	status := "analyzed"
+	if isMatch {
+		status = "matched"
+	}
+
 	return conn.
 		Model(&models.Job{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
-			"is_match":     isMatch,
-			"match_score":  score,
-			"match_reason": reason,
-			"analyzed_at":  now,
+			"is_match":             isMatch,
+			"match_score":          score,
+			"match_reason":         reason,
+			"analyzed_at":          now,
+			"status":               status,
+			"analysis_retry_count": 0,
+			"analysis_last_error":  nil,
+		}).Error
+}
+
+func MarkJobAnalysisFailed(conn *gorm.DB, id int, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "analysis failed"
+	}
+	return conn.
+		Model(&models.Job{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"status":               "failed",
+			"analysis_retry_count": gorm.Expr("analysis_retry_count + 1"),
+			"analysis_last_error":  reason,
+		}).Error
+}
+
+func UpsertQueuedJob(conn *gorm.DB, job models.Job) error {
+	job.ExternalID = strings.TrimSpace(job.ExternalID)
+	job.Title = strings.TrimSpace(job.Title)
+	job.URL = strings.TrimSpace(job.URL)
+	if job.ExternalID == "" {
+		return errors.New("external id is required")
+	}
+	if job.Title == "" {
+		return errors.New("job title is required")
+	}
+	if job.URL == "" {
+		return errors.New("job url is required")
+	}
+	if job.ScrapedAt.IsZero() {
+		job.ScrapedAt = time.Now().UTC()
+	}
+	job.Status = "queued"
+
+	var existing models.Job
+	err := conn.Where("external_id = ?", job.ExternalID).First(&existing).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return conn.Create(&job).Error
+		}
+		return err
+	}
+
+	return conn.Model(&models.Job{}).
+		Where("external_id = ?", job.ExternalID).
+		Updates(map[string]any{
+			"title":       job.Title,
+			"company":     job.Company,
+			"location":    job.Location,
+			"salary":      job.Salary,
+			"description": job.Description,
+			"url":         job.URL,
+			"posted_at":   job.PostedAt,
+			"scraped_at":  job.ScrapedAt,
+			"status":      "queued",
 		}).Error
 }
 
@@ -232,6 +298,18 @@ func MarkSeenJob(conn *gorm.DB, externalID, url, title, status string) error {
 	})
 }
 
+func PruneSeenJobs(conn *gorm.DB, status string, olderThan time.Time) (int64, error) {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return 0, errors.New("status is required")
+	}
+	result := conn.
+		Where("status = ?", status).
+		Where("last_seen_at < ?", olderThan).
+		Delete(&models.SeenJob{})
+	return result.RowsAffected, result.Error
+}
+
 type GormSeenJobStore struct {
 	DB *gorm.DB
 }
@@ -248,4 +326,36 @@ func (s *GormSeenJobStore) MarkSeen(externalID, url, title string) error {
 		return errors.New("seen job store is not configured")
 	}
 	return MarkSeenJob(s.DB, externalID, url, title, "seen")
+}
+
+func (s *GormSeenJobStore) MarkWithStatus(externalID, url, title, status string) error {
+	if s == nil || s.DB == nil {
+		return errors.New("seen job store is not configured")
+	}
+	return MarkSeenJob(s.DB, externalID, url, title, status)
+}
+
+type GormPipelineRepository struct {
+	DB *gorm.DB
+}
+
+func (r *GormPipelineRepository) IsSeen(externalID string) (bool, error) {
+	if r == nil || r.DB == nil {
+		return false, errors.New("pipeline repository is not configured")
+	}
+	return HasSeenJob(r.DB, externalID)
+}
+
+func (r *GormPipelineRepository) MarkSeen(externalID, url, title, status string) error {
+	if r == nil || r.DB == nil {
+		return errors.New("pipeline repository is not configured")
+	}
+	return MarkSeenJob(r.DB, externalID, url, title, status)
+}
+
+func (r *GormPipelineRepository) SaveQueuedJob(job models.Job) error {
+	if r == nil || r.DB == nil {
+		return errors.New("pipeline repository is not configured")
+	}
+	return UpsertQueuedJob(r.DB, job)
 }

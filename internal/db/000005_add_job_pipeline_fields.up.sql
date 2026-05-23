@@ -1,0 +1,10 @@
+ALTER TABLE jobs
+ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'queued';
+
+ALTER TABLE jobs
+ADD COLUMN IF NOT EXISTS analysis_retry_count INT NOT NULL DEFAULT 0;
+
+ALTER TABLE jobs
+ADD COLUMN IF NOT EXISTS analysis_last_error TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);

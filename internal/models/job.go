@@ -14,6 +14,9 @@ type Job struct {
 	PostedAt    *time.Time `json:"posted_at" gorm:"column:posted_at"`
 	ScrapedAt   time.Time  `json:"scraped_at" gorm:"column:scraped_at"`
 	AnalyzedAt  *time.Time `json:"analyzed_at" gorm:"column:analyzed_at"`
+	Status      string     `json:"status" gorm:"column:status"`
+	RetryCount  int        `json:"analysis_retry_count" gorm:"column:analysis_retry_count"`
+	LastError   *string    `json:"analysis_last_error" gorm:"column:analysis_last_error"`
 	IsMatch     bool       `json:"is_match" gorm:"column:is_match"`
 	MatchScore  *int       `json:"match_score" gorm:"column:match_score"`
 	MatchReason *string    `json:"match_reason" gorm:"column:match_reason"`

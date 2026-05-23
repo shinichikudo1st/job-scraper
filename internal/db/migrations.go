@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -77,10 +78,14 @@ func RunSQLiteMigrations(conn *gorm.DB) error {
 			match_score INTEGER,
 			match_reason TEXT,
 			notified BOOLEAN DEFAULT FALSE,
-			analyzed_at DATETIME
+			analyzed_at DATETIME,
+			status TEXT NOT NULL DEFAULT 'queued',
+			analysis_retry_count INTEGER NOT NULL DEFAULT 0,
+			analysis_last_error TEXT
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_jobs_is_match ON jobs(is_match)`,
 		`CREATE INDEX IF NOT EXISTS idx_jobs_notified ON jobs(notified)`,
+		`CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)`,
 		`CREATE TABLE IF NOT EXISTS profiles (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL,
@@ -107,8 +112,31 @@ func RunSQLiteMigrations(conn *gorm.DB) error {
 			return fmt.Errorf("run sqlite migration statement: %w", err)
 		}
 	}
+	if err := ensureSQLiteColumn(conn, "jobs", "status", "TEXT NOT NULL DEFAULT 'queued'"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(conn, "jobs", "analysis_retry_count", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureSQLiteColumn(conn, "jobs", "analysis_last_error", "TEXT"); err != nil {
+		return err
+	}
 
 	log.Println("sqlite migrations: schema is ready")
+	return nil
+}
+
+func ensureSQLiteColumn(conn *gorm.DB, table, column, definition string) error {
+	var found string
+	if err := conn.Raw("SELECT name FROM pragma_table_info(?) WHERE name = ?", table, column).Scan(&found).Error; err != nil {
+		return fmt.Errorf("inspect sqlite column %s.%s: %w", table, column, err)
+	}
+	if strings.EqualFold(found, column) {
+		return nil
+	}
+	if err := conn.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition)).Error; err != nil {
+		return fmt.Errorf("add sqlite column %s.%s: %w", table, column, err)
+	}
 	return nil
 }
 

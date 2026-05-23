@@ -102,11 +102,7 @@ func (s *OnlineJobsPHScraper) ScrapeNewDetails(ctx context.Context, seen SeenSto
 			if alreadySeen {
 				continue
 			}
-			detailHTML, err := s.fetch(ctx, summary.URL)
-			if err != nil {
-				return nil, err
-			}
-			detail, err := ParseDetailHTML(detailHTML, summary)
+			detail, err := s.FetchDetail(ctx, summary)
 			if err != nil {
 				return nil, err
 			}
@@ -117,6 +113,17 @@ func (s *OnlineJobsPHScraper) ScrapeNewDetails(ctx context.Context, seen SeenSto
 		}
 	}
 	return details, nil
+}
+
+func (s *OnlineJobsPHScraper) FetchDetail(ctx context.Context, summary JobSummary) (JobDetail, error) {
+	if s == nil {
+		return JobDetail{}, errors.New("scraper is nil")
+	}
+	detailHTML, err := s.fetch(ctx, summary.URL)
+	if err != nil {
+		return JobDetail{}, err
+	}
+	return ParseDetailHTML(detailHTML, summary)
 }
 
 func (s *OnlineJobsPHScraper) fetch(ctx context.Context, targetURL string) (string, error) {
@@ -411,7 +418,7 @@ func firstLine(s string) string {
 func extractSalary(text string) string {
 	for _, token := range strings.Split(text, " ") {
 		lower := strings.ToLower(token)
-		if strings.Contains(lower, "$") || strings.Contains(lower, "php") || strings.Contains(lower, "₱") {
+		if strings.Contains(lower, "$") || strings.Contains(lower, "php") {
 			return token
 		}
 	}

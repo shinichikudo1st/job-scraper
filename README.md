@@ -157,7 +157,7 @@ web/                   # static UI embedded into the binary
 
 This repository currently focuses on analysis and serving. Feeding `jobs`, respecting `external_id` uniqueness and the migration column set, can be done with n8n, scripts, or another scraper.
 
-The productized version is moving OnlineJobsPH scraping into Go and avoiding storage of every scraped job before filtering. The current scraper foundation can parse OnlineJobsPH listing/detail HTML, apply local filters, and skip duplicate detail fetches through the `seen_jobs` table.
+The productized version is moving OnlineJobsPH scraping into Go and avoiding storage of every scraped job before filtering. The scraper and pipeline foundations can parse OnlineJobsPH listing/detail HTML, apply local filters, store compact skipped records in `seen_jobs`, save full descriptions only for queued candidates, and let the matcher analyze queued jobs.
 
 ## License
 

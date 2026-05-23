@@ -21,6 +21,7 @@ const (
 type JobRepository interface {
 	FetchPendingJobs(limit int, postedAfter time.Time) ([]models.Job, error)
 	UpdateJobMatch(id int, isMatch bool, score int, reason string) error
+	MarkJobAnalysisFailed(id int, reason string) error
 }
 
 type gormJobRepository struct {
@@ -37,6 +38,10 @@ func (r *gormJobRepository) FetchPendingJobs(limit int, postedAfter time.Time) (
 
 func (r *gormJobRepository) UpdateJobMatch(id int, isMatch bool, score int, reason string) error {
 	return db.UpdateJobMatch(r.conn, id, isMatch, score, reason)
+}
+
+func (r *gormJobRepository) MarkJobAnalysisFailed(id int, reason string) error {
+	return db.MarkJobAnalysisFailed(r.conn, id, reason)
 }
 
 // RunMatcher continuously polls pending jobs, analyzes them with a worker pool,
@@ -163,6 +168,9 @@ func processMatcherJobBatch(
 				result, err := analyzer.AnalyzeJob(&job, "")
 				if err != nil {
 					log.Printf("matcher: worker=%d analyze failed for job id=%d: %v", workerID, job.ID, err)
+					if markErr := repo.MarkJobAnalysisFailed(job.ID, err.Error()); markErr != nil {
+						log.Printf("matcher: worker=%d mark failed analysis for job id=%d: %v", workerID, job.ID, markErr)
+					}
 					continue
 				}
 

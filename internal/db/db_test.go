@@ -4,8 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/shinichikudo1st/job-scraper/internal/db"
+	"github.com/shinichikudo1st/job-scraper/internal/models"
 )
 
 func TestLoadDBConfigDefaultsToSQLite(t *testing.T) {
@@ -164,5 +166,69 @@ func TestMarkSeenJobSkipsDuplicateWork(t *testing.T) {
 	}
 	if !seen {
 		t.Fatalf("expected job-1 to be seen")
+	}
+}
+
+func TestQueuedJobLifecycleAndPruneSeenJobs(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "smarter-olj.db")
+	conn, err := db.ConnectConfiguredDB(&db.DBConfig{
+		Driver:     db.DriverSQLite,
+		SQLitePath: dbPath,
+	})
+	if err != nil {
+		t.Fatalf("ConnectConfiguredDB() error = %v", err)
+	}
+	sqlDB, err := conn.DB()
+	if err != nil {
+		t.Fatalf("DB() error = %v", err)
+	}
+	defer sqlDB.Close()
+
+	if err := db.RunSQLiteMigrations(conn); err != nil {
+		t.Fatalf("RunSQLiteMigrations() error = %v", err)
+	}
+
+	desc := "Build backend APIs."
+	if err := db.UpsertQueuedJob(conn, models.Job{
+		ExternalID:  "job-queued-1",
+		Title:       "Go Developer",
+		URL:         "https://example.com/job-queued-1",
+		Description: &desc,
+	}); err != nil {
+		t.Fatalf("UpsertQueuedJob() error = %v", err)
+	}
+
+	pending, err := db.FetchPendingJobs(conn, 10, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("FetchPendingJobs() error = %v", err)
+	}
+	if len(pending) != 1 || pending[0].Status != "queued" {
+		t.Fatalf("unexpected pending jobs: %+v", pending)
+	}
+
+	if err := db.MarkJobAnalysisFailed(conn, pending[0].ID, "model unavailable"); err != nil {
+		t.Fatalf("MarkJobAnalysisFailed() error = %v", err)
+	}
+	pending, err = db.FetchPendingJobs(conn, 10, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("FetchPendingJobs() after failure error = %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("failed job should not be pending again: %+v", pending)
+	}
+
+	if err := db.MarkSeenJob(conn, "old-skipped", "https://example.com/old", "Old", "skipped"); err != nil {
+		t.Fatalf("MarkSeenJob() error = %v", err)
+	}
+	oldTime := time.Now().Add(-48 * time.Hour)
+	if err := conn.Model(&models.SeenJob{}).Where("external_id = ?", "old-skipped").Update("last_seen_at", oldTime).Error; err != nil {
+		t.Fatalf("age seen job: %v", err)
+	}
+	pruned, err := db.PruneSeenJobs(conn, "skipped", time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("PruneSeenJobs() error = %v", err)
+	}
+	if pruned != 1 {
+		t.Fatalf("expected 1 pruned row, got %d", pruned)
 	}
 }
