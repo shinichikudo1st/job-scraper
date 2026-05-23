@@ -72,6 +72,8 @@ Use the **Active CV profile** panel in the UI to paste your CV or upload a `.txt
 
 Use the **AI provider** panel in the UI to select Ollama, OpenAI, Anthropic, or an OpenAI-compatible server. API keys entered in the UI are kept in memory for the current app session only. They are not stored in SQLite.
 
+Use the **OnlineJobsPH search** panel to save local scraper preferences such as search URL, keywords, exclusions, max pages, and minimum salary.
+
 Default SQLite database locations:
 
 ```text
@@ -125,8 +127,11 @@ Then open:
 | `GET` | `/api/health` | Liveness: `{"status":"ok"}` |
 | `GET` | `/api/ai/settings` | Read current in-memory AI provider settings without exposing API keys |
 | `POST` | `/api/ai/settings` | Update in-memory AI provider settings for the current app session |
+| `POST` | `/api/ai/test` | Test the current in-memory AI provider connection |
 | `GET` | `/api/profile/active` | Read the active CV profile |
 | `POST` | `/api/profile/active` | Save the active CV profile with JSON body: `{"name":"Main","cv_text":"..."}` |
+| `GET` | `/api/settings/scraper` | Read local OnlineJobsPH scraper settings |
+| `POST` | `/api/settings/scraper` | Save local OnlineJobsPH scraper settings |
 | `GET` | `/api/jobs/matched` | Paginated jobs with `is_match = true`. Query: `notified` (bool), `limit` (1-100, default 20), `offset` |
 | `GET` | `/api/jobs/matched/export?format=csv` or `format=xlsx` | Download up to 10k matched rows |
 

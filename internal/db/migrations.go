@@ -105,6 +105,11 @@ func RunSQLiteMigrations(conn *gorm.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_seen_jobs_status ON seen_jobs(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_seen_jobs_last_seen_at ON seen_jobs(last_seen_at)`,
+		`CREATE TABLE IF NOT EXISTS app_settings (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 
 	for _, stmt := range statements {

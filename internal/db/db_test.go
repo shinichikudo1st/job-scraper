@@ -97,6 +97,15 @@ func TestRunSQLiteMigrationsCreatesJobsTable(t *testing.T) {
 	if tableName != "seen_jobs" {
 		t.Fatalf("seen_jobs table missing, got %q", tableName)
 	}
+
+	tableName = ""
+	err = conn.Raw("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", "app_settings").Scan(&tableName).Error
+	if err != nil {
+		t.Fatalf("query sqlite app settings schema: %v", err)
+	}
+	if tableName != "app_settings" {
+		t.Fatalf("app_settings table missing, got %q", tableName)
+	}
 }
 
 func TestUpsertAndGetActiveProfile(t *testing.T) {

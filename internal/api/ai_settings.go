@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/shinichikudo1st/job-scraper/internal/ai"
@@ -28,6 +30,7 @@ func RegisterAISettingsRoutes(r gin.IRoutes, store AIConfigStore) {
 	h := &AISettingsHandler{Store: store}
 	r.GET("/api/ai/settings", h.Get)
 	r.POST("/api/ai/settings", h.Save)
+	r.POST("/api/ai/test", h.Test)
 }
 
 func (h *AISettingsHandler) Get(c *gin.Context) {
@@ -62,4 +65,32 @@ func (h *AISettingsHandler) Save(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, ai.ToPublicConfig(config))
+}
+
+func (h *AISettingsHandler) Test(c *gin.Context) {
+	if h.Store == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ai settings store not configured"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+
+	client, err := ai.NewClient(h.Store.Get())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+	if withContext, ok := client.(interface {
+		GenerateWithContext(context.Context, string) (string, error)
+	}); ok {
+		_, err = withContext.GenerateWithContext(ctx, `Reply with only this JSON: {"ok":true}`)
+	} else {
+		_, err = client.Generate(`Reply with only this JSON: {"ok":true}`)
+	}
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -358,4 +359,91 @@ func (r *GormPipelineRepository) SaveQueuedJob(job models.Job) error {
 		return errors.New("pipeline repository is not configured")
 	}
 	return UpsertQueuedJob(r.DB, job)
+}
+
+func GetAppSetting(conn *gorm.DB, key string) (string, bool, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", false, errors.New("setting key is required")
+	}
+	var setting models.AppSetting
+	err := conn.Where("key = ?", key).First(&setting).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return setting.Value, true, nil
+}
+
+func SetAppSetting(conn *gorm.DB, key, value string) error {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return errors.New("setting key is required")
+	}
+	now := time.Now().UTC()
+	var existing models.AppSetting
+	err := conn.Where("key = ?", key).First(&existing).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return conn.Create(&models.AppSetting{Key: key, Value: value, UpdatedAt: now}).Error
+		}
+		return err
+	}
+	return conn.Model(&models.AppSetting{}).
+		Where("key = ?", key).
+		Updates(map[string]any{"value": value, "updated_at": now}).Error
+}
+
+func GetJSONSetting[T any](conn *gorm.DB, key string, fallback T) (T, error) {
+	raw, ok, err := GetAppSetting(conn, key)
+	if err != nil {
+		return fallback, err
+	}
+	if !ok || strings.TrimSpace(raw) == "" {
+		return fallback, nil
+	}
+	var out T
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return fallback, err
+	}
+	return out, nil
+}
+
+func SetJSONSetting(conn *gorm.DB, key string, value any) error {
+	b, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return SetAppSetting(conn, key, string(b))
+}
+
+type GormSettingsStore struct {
+	DB *gorm.DB
+}
+
+func (s *GormSettingsStore) GetJSON(key string, fallback any) (any, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("settings store is not configured")
+	}
+	raw, ok, err := GetAppSetting(s.DB, key)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || strings.TrimSpace(raw) == "" {
+		return fallback, nil
+	}
+	out := fallback
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *GormSettingsStore) SetJSON(key string, value any) error {
+	if s == nil || s.DB == nil {
+		return errors.New("settings store is not configured")
+	}
+	return SetJSONSetting(s.DB, key, value)
 }

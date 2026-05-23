@@ -62,3 +62,37 @@ func TestAISettingsInvalidProvider(t *testing.T) {
 		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestAISettingsTestConnection(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"response":"{\"ok\":true}"}`))
+	}))
+	defer provider.Close()
+
+	gin.SetMode(gin.TestMode)
+	store, err := ai.NewConfigStore(ai.Config{
+		Provider: ai.ProviderOllama,
+		BaseURL:  provider.URL,
+		Model:    "test-model",
+	})
+	if err != nil {
+		t.Fatalf("NewConfigStore() error = %v", err)
+	}
+
+	r := gin.New()
+	RegisterAISettingsRoutes(r, store)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/ai/test", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"ok":true`) {
+		t.Fatalf("unexpected body: %s", rec.Body.String())
+	}
+}
