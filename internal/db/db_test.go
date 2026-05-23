@@ -86,6 +86,15 @@ func TestRunSQLiteMigrationsCreatesJobsTable(t *testing.T) {
 	if tableName != "profiles" {
 		t.Fatalf("profiles table missing, got %q", tableName)
 	}
+
+	tableName = ""
+	err = conn.Raw("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", "seen_jobs").Scan(&tableName).Error
+	if err != nil {
+		t.Fatalf("query sqlite seen jobs schema: %v", err)
+	}
+	if tableName != "seen_jobs" {
+		t.Fatalf("seen_jobs table missing, got %q", tableName)
+	}
 }
 
 func TestUpsertAndGetActiveProfile(t *testing.T) {
@@ -121,5 +130,39 @@ func TestUpsertAndGetActiveProfile(t *testing.T) {
 	}
 	if got.Name != "Main" || got.CVText != "Go developer" {
 		t.Fatalf("unexpected active profile: %+v", got)
+	}
+}
+
+func TestMarkSeenJobSkipsDuplicateWork(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "smarter-olj.db")
+	conn, err := db.ConnectConfiguredDB(&db.DBConfig{
+		Driver:     db.DriverSQLite,
+		SQLitePath: dbPath,
+	})
+	if err != nil {
+		t.Fatalf("ConnectConfiguredDB() error = %v", err)
+	}
+	sqlDB, err := conn.DB()
+	if err != nil {
+		t.Fatalf("DB() error = %v", err)
+	}
+	defer sqlDB.Close()
+
+	if err := db.RunSQLiteMigrations(conn); err != nil {
+		t.Fatalf("RunSQLiteMigrations() error = %v", err)
+	}
+
+	if err := db.MarkSeenJob(conn, "job-1", "https://example.com/job-1", "Go Developer", "seen"); err != nil {
+		t.Fatalf("MarkSeenJob() error = %v", err)
+	}
+	if err := db.MarkSeenJob(conn, "job-1", "https://example.com/job-1", "Go Developer Updated", "seen"); err != nil {
+		t.Fatalf("MarkSeenJob() duplicate error = %v", err)
+	}
+	seen, err := db.HasSeenJob(conn, "job-1")
+	if err != nil {
+		t.Fatalf("HasSeenJob() error = %v", err)
+	}
+	if !seen {
+		t.Fatalf("expected job-1 to be seen")
 	}
 }

@@ -172,3 +172,80 @@ func (p *GormProfileCVProvider) ActiveCVText() (string, error) {
 	}
 	return cvText, nil
 }
+
+func HasSeenJob(conn *gorm.DB, externalID string) (bool, error) {
+	externalID = strings.TrimSpace(externalID)
+	if externalID == "" {
+		return false, errors.New("external id is required")
+	}
+	var count int64
+	if err := conn.Model(&models.SeenJob{}).Where("external_id = ?", externalID).Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func MarkSeenJob(conn *gorm.DB, externalID, url, title, status string) error {
+	externalID = strings.TrimSpace(externalID)
+	url = strings.TrimSpace(url)
+	title = strings.TrimSpace(title)
+	status = strings.TrimSpace(status)
+	if externalID == "" {
+		return errors.New("external id is required")
+	}
+	if url == "" {
+		return errors.New("url is required")
+	}
+	if title == "" {
+		title = url
+	}
+	if status == "" {
+		status = "seen"
+	}
+
+	now := time.Now().UTC()
+	seen := models.SeenJob{
+		ExternalID:  externalID,
+		URL:         url,
+		Title:       title,
+		Status:      status,
+		FirstSeenAt: now,
+		LastSeenAt:  now,
+	}
+	return conn.Transaction(func(tx *gorm.DB) error {
+		var existing models.SeenJob
+		err := tx.Where("external_id = ?", externalID).First(&existing).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return tx.Create(&seen).Error
+			}
+			return err
+		}
+		return tx.Model(&models.SeenJob{}).
+			Where("external_id = ?", externalID).
+			Updates(map[string]any{
+				"url":          url,
+				"title":        title,
+				"status":       status,
+				"last_seen_at": now,
+			}).Error
+	})
+}
+
+type GormSeenJobStore struct {
+	DB *gorm.DB
+}
+
+func (s *GormSeenJobStore) IsSeen(externalID string) (bool, error) {
+	if s == nil || s.DB == nil {
+		return false, errors.New("seen job store is not configured")
+	}
+	return HasSeenJob(s.DB, externalID)
+}
+
+func (s *GormSeenJobStore) MarkSeen(externalID, url, title string) error {
+	if s == nil || s.DB == nil {
+		return errors.New("seen job store is not configured")
+	}
+	return MarkSeenJob(s.DB, externalID, url, title, "seen")
+}

@@ -139,8 +139,9 @@ cmd/job-scraper/       # main: migrations, matcher goroutine, HTTP server
 internal/api/          # matched jobs handlers
 internal/db/           # connection, migrations, queries
 internal/export/       # CSV / XLSX
-internal/matcher/      # Ollama client, analyzer, polling workers
-internal/models/       # Job model
+internal/matcher/      # AI analyzer and polling workers
+internal/models/       # data models
+internal/scraper/      # OnlineJobsPH scraper foundation
 internal/server/       # Gin router
 web/                   # static UI embedded into the binary
 ```
@@ -156,7 +157,7 @@ web/                   # static UI embedded into the binary
 
 This repository currently focuses on analysis and serving. Feeding `jobs`, respecting `external_id` uniqueness and the migration column set, can be done with n8n, scripts, or another scraper.
 
-The productized version will move OnlineJobsPH scraping into Go and avoid storing every scraped job before filtering.
+The productized version is moving OnlineJobsPH scraping into Go and avoiding storage of every scraped job before filtering. The current scraper foundation can parse OnlineJobsPH listing/detail HTML, apply local filters, and skip duplicate detail fetches through the `seen_jobs` table.
 
 ## License
 
