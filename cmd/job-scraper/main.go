@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/shinichikudo1st/job-scraper/internal/ai"
 	"github.com/shinichikudo1st/job-scraper/internal/db"
+	"github.com/shinichikudo1st/job-scraper/internal/desktop"
 	"github.com/shinichikudo1st/job-scraper/internal/matcher"
 	"github.com/shinichikudo1st/job-scraper/internal/server"
 	"gorm.io/gorm"
@@ -85,6 +87,10 @@ func main() {
 		Addr:    ":" + port,
 		Handler: router,
 	}
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		log.Fatalf("server listen error: %v", err)
+	}
 
 	go func() {
 		<-ctx.Done()
@@ -96,8 +102,20 @@ func main() {
 		}
 	}()
 
-	log.Printf("http server: listening on :%s", port)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	uiURL := "http://localhost:" + port
+	log.Printf("http server: listening on %s", uiURL)
+	if desktop.ShouldOpenBrowser(os.Getenv("OPEN_BROWSER")) {
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			if err := desktop.OpenBrowser(uiURL); err != nil {
+				log.Printf("browser: open %s manually (%v)", uiURL, err)
+			}
+		}()
+	} else {
+		log.Printf("browser: auto-open disabled; open %s manually", uiURL)
+	}
+
+	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
 	}
 }

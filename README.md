@@ -2,7 +2,7 @@
 
 Smarter OLJ is a Go service that matches OnlineJobsPH job postings to a CV using an AI model, stores match results in a local database, and exposes a small HTTP API plus a web UI to browse and export matches.
 
-The current app is a local analyzer service. By default it creates a SQLite database on the user's machine. Postgres is still available as an advanced option. Jobs are expected to land in the database first, for example from n8n, scripts, or another scraper. The service then runs migrations, starts background matcher workers, calls Ollama for scoring, and serves the UI on port `8080` by default.
+The current app is a local analyzer service. By default it creates a SQLite database on the user's machine. Postgres is still available as an advanced option. The app runs migrations, starts background matcher workers, serves the UI on port `8080`, and opens the browser automatically by default.
 
 This repo is being productized into a downloadable local-first job search tool for OnlineJobsPH jobseekers. See [PRODUCTIZATION_PLAN.md](PRODUCTIZATION_PLAN.md) for the planned SQLite database, CV/profile manager, Go scraper, and pluggable AI providers.
 
@@ -67,6 +67,7 @@ Do not commit real `.env` files, CV files, API keys, database dumps, or other pr
 | `MATCHER_BATCH_SIZE` | No | Max rows per DB fetch when draining pending jobs, default `100` |
 | `CV_PATH` | No | Optional development fallback path to a plain-text CV. The product flow uses the active CV profile saved through the UI |
 | `WEB_ROOT` | No | Optional static UI directory for development. Leave empty to use the embedded UI |
+| `OPEN_BROWSER` | No | Opens the UI in the default browser by default. Set `false` to disable |
 
 Use the **Active CV profile** panel in the UI to paste your CV or upload a `.txt` file. The saved profile is stored in the local database and used by the matcher. `CV_PATH` remains available as a development fallback; keep real CV files out of git.
 
@@ -83,6 +84,17 @@ Linux: ~/.local/share/smarter-olj/smarter-olj.db
 ```
 
 ## Run
+
+For normal users, download a release archive, extract it, and run the binary:
+
+```text
+Windows: double-click smarter-olj.exe
+macOS/Linux: run ./smarter-olj
+```
+
+The app opens `http://localhost:8080` automatically. If the browser does not open, open that URL manually.
+
+For development:
 
 ```bash
 go run ./cmd/job-scraper
