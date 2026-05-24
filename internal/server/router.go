@@ -33,6 +33,7 @@ func NewRouter(db *gorm.DB, webRoot string, aiStores ...*ai.ConfigStore) *gin.En
 		profileStore := &api.GormProfileStore{DB: db}
 		api.RegisterProfileRoutes(r, profileStore)
 		api.RegisterScraperSettingsRoutes(r, db)
+		api.RegisterScrapeRunRoutes(r, db)
 	}
 	if len(aiStores) > 0 && aiStores[0] != nil {
 		api.RegisterAISettingsRoutes(r, aiStores[0])

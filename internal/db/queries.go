@@ -116,6 +116,102 @@ func GetMatchedJobs(conn *gorm.DB, notified bool, limit int) ([]models.Job, erro
 	return jobs, err
 }
 
+func GetJobsByStatusPaginated(conn *gorm.DB, status, search string, limit, offset int) ([]models.Job, int64, error) {
+	status = strings.TrimSpace(status)
+	if status == "" || status == "new" {
+		status = "matched"
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	base := conn.Model(&models.Job{}).Where("status = ?", status)
+	search = strings.TrimSpace(search)
+	if search != "" {
+		like := "%" + strings.ToLower(search) + "%"
+		base = base.Where("(LOWER(title) LIKE ? OR LOWER(COALESCE(company, '')) LIKE ? OR LOWER(COALESCE(description, '')) LIKE ?)", like, like, like)
+	}
+
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	query := conn.Where("status = ?", status)
+	if search != "" {
+		like := "%" + strings.ToLower(search) + "%"
+		query = query.Where("(LOWER(title) LIKE ? OR LOWER(COALESCE(company, '')) LIKE ? OR LOWER(COALESCE(description, '')) LIKE ?)", like, like, like)
+	}
+
+	var jobs []models.Job
+	err := query.
+		Order("match_score DESC NULLS LAST, analyzed_at DESC NULLS LAST, posted_at DESC NULLS LAST, scraped_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&jobs).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	return jobs, total, nil
+}
+
+func CountJobsByStatus(conn *gorm.DB) (map[string]int64, error) {
+	rows, err := conn.
+		Model(&models.Job{}).
+		Select("status, count(*) as total").
+		Group("status").
+		Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := map[string]int64{}
+	for rows.Next() {
+		var status string
+		var total int64
+		if err := rows.Scan(&status, &total); err != nil {
+			return nil, err
+		}
+		counts[status] = total
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return counts, nil
+}
+
+func UpdateJobWorkflowStatus(conn *gorm.DB, id int, status string) error {
+	status = strings.TrimSpace(strings.ToLower(status))
+	allowed := map[string]bool{
+		"matched":   true,
+		"saved":     true,
+		"applied":   true,
+		"dismissed": true,
+	}
+	if !allowed[status] {
+		return errors.New("unsupported job status")
+	}
+	return conn.Model(&models.Job{}).Where("id = ?", id).Update("status", status).Error
+}
+
+func RequeueJobForAnalysis(conn *gorm.DB, id int) error {
+	return conn.Model(&models.Job{}).
+		Where("id = ?", id).
+		Updates(map[string]any{
+			"status":               "queued",
+			"match_score":          nil,
+			"match_reason":         nil,
+			"analysis_last_error":  nil,
+			"analysis_retry_count": 0,
+			"analyzed_at":          nil,
+			"is_match":             false,
+		}).Error
+}
+
 // GetMatchedJobsPaginated returns is_match=true rows filtered by notified, ordered for UI.
 func GetMatchedJobsPaginated(conn *gorm.DB, notified bool, limit, offset int) ([]models.Job, int64, error) {
 	if limit <= 0 {

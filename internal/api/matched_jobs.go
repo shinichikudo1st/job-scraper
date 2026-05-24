@@ -22,6 +22,10 @@ const (
 
 type MatchedJobsReader interface {
 	ListMatchedJobs(notified bool, limit, offset int) ([]models.Job, int64, error)
+	ListJobsByStatus(status, search string, limit, offset int) ([]models.Job, int64, error)
+	CountJobsByStatus() (map[string]int64, error)
+	UpdateJobStatus(id int, status string) error
+	RequeueJob(id int) error
 }
 
 type GormMatchedJobsReader struct {
@@ -30,6 +34,22 @@ type GormMatchedJobsReader struct {
 
 func (r *GormMatchedJobsReader) ListMatchedJobs(notified bool, limit, offset int) ([]models.Job, int64, error) {
 	return db.GetMatchedJobsPaginated(r.DB, notified, limit, offset)
+}
+
+func (r *GormMatchedJobsReader) ListJobsByStatus(status, search string, limit, offset int) ([]models.Job, int64, error) {
+	return db.GetJobsByStatusPaginated(r.DB, status, search, limit, offset)
+}
+
+func (r *GormMatchedJobsReader) CountJobsByStatus() (map[string]int64, error) {
+	return db.CountJobsByStatus(r.DB)
+}
+
+func (r *GormMatchedJobsReader) UpdateJobStatus(id int, status string) error {
+	return db.UpdateJobWorkflowStatus(r.DB, id, status)
+}
+
+func (r *GormMatchedJobsReader) RequeueJob(id int) error {
+	return db.RequeueJobForAnalysis(r.DB, id)
 }
 
 type MatchedJobsHandler struct {
@@ -45,6 +65,8 @@ type matchedJobJSON struct {
 	MatchScore  *int       `json:"match_score"`
 	MatchReason *string    `json:"match_reason"`
 	PostedAt    *time.Time `json:"posted_at"`
+	Status      string     `json:"status"`
+	LastError   *string    `json:"analysis_last_error,omitempty"`
 }
 
 type matchedListResponse struct {
@@ -58,6 +80,10 @@ func RegisterMatchedJobsRoutes(r gin.IRoutes, reader MatchedJobsReader) {
 	h := &MatchedJobsHandler{Reader: reader}
 	r.GET("/api/jobs/matched", h.ListMatched)
 	r.GET("/api/jobs/matched/export", h.ExportMatched)
+	r.GET("/api/jobs", h.ListByStatus)
+	r.GET("/api/jobs/stats", h.Stats)
+	r.POST("/api/jobs/:id/status", h.UpdateStatus)
+	r.POST("/api/jobs/:id/reanalyze", h.Reanalyze)
 }
 
 func (h *MatchedJobsHandler) ListMatched(c *gin.Context) {
@@ -129,6 +155,85 @@ func (h *MatchedJobsHandler) ExportMatched(c *gin.Context) {
 	}
 }
 
+func (h *MatchedJobsHandler) ListByStatus(c *gin.Context) {
+	if h.Reader == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "jobs reader not configured"})
+		return
+	}
+	status := strings.ToLower(strings.TrimSpace(c.Query("status")))
+	if status == "" || status == "new" {
+		status = "matched"
+	}
+	search := c.Query("search")
+	limit := parseQueryInt(c, "limit", defaultMatchedLimit, 1, maxMatchedLimit)
+	offset := parseQueryInt(c, "offset", 0, 0, 1_000_000)
+
+	jobs, total, err := h.Reader.ListJobsByStatus(status, search, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	items := make([]matchedJobJSON, 0, len(jobs))
+	for _, j := range jobs {
+		items = append(items, toMatchedJobJSON(j))
+	}
+	c.JSON(http.StatusOK, matchedListResponse{Items: items, Total: total, Limit: limit, Offset: offset})
+}
+
+func (h *MatchedJobsHandler) Stats(c *gin.Context) {
+	if h.Reader == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "jobs reader not configured"})
+		return
+	}
+	counts, err := h.Reader.CountJobsByStatus()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"counts": counts})
+}
+
+type updateStatusRequest struct {
+	Status string `json:"status"`
+}
+
+func (h *MatchedJobsHandler) UpdateStatus(c *gin.Context) {
+	if h.Reader == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "jobs reader not configured"})
+		return
+	}
+	id, ok := parsePathID(c)
+	if !ok {
+		return
+	}
+	var req updateStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status payload"})
+		return
+	}
+	if err := h.Reader.UpdateJobStatus(id, req.Status); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *MatchedJobsHandler) Reanalyze(c *gin.Context) {
+	if h.Reader == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "jobs reader not configured"})
+		return
+	}
+	id, ok := parsePathID(c)
+	if !ok {
+		return
+	}
+	if err := h.Reader.RequeueJob(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 func toMatchedJobJSON(j models.Job) matchedJobJSON {
 	return matchedJobJSON{
 		ID:          j.ID,
@@ -139,7 +244,18 @@ func toMatchedJobJSON(j models.Job) matchedJobJSON {
 		MatchScore:  j.MatchScore,
 		MatchReason: j.MatchReason,
 		PostedAt:    j.PostedAt,
+		Status:      j.Status,
+		LastError:   j.LastError,
 	}
+}
+
+func parsePathID(c *gin.Context) (int, bool) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid job id"})
+		return 0, false
+	}
+	return id, true
 }
 
 func parseQueryBool(c *gin.Context, key string, defaultVal bool) bool {

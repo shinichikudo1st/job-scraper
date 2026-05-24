@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ type fakeMatchedReader struct {
 	jobs  []models.Job
 	total int64
 	err   error
+	stats map[string]int64
 }
 
 func (f *fakeMatchedReader) ListMatchedJobs(notified bool, limit, offset int) ([]models.Job, int64, error) {
@@ -36,6 +38,28 @@ func (f *fakeMatchedReader) ListMatchedJobs(notified bool, limit, offset int) ([
 		end = len(f.jobs)
 	}
 	return f.jobs[offset:end], f.total, nil
+}
+
+func (f *fakeMatchedReader) ListJobsByStatus(status, search string, limit, offset int) ([]models.Job, int64, error) {
+	return f.ListMatchedJobs(false, limit, offset)
+}
+
+func (f *fakeMatchedReader) CountJobsByStatus() (map[string]int64, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.stats != nil {
+		return f.stats, nil
+	}
+	return map[string]int64{}, nil
+}
+
+func (f *fakeMatchedReader) UpdateJobStatus(id int, status string) error {
+	return f.err
+}
+
+func (f *fakeMatchedReader) RequeueJob(id int) error {
+	return f.err
 }
 
 func TestListMatchedJSON(t *testing.T) {
@@ -167,5 +191,86 @@ func TestExportMatchedInvalidFormat(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestListJobsByStatusJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	score := 91
+	reader := &fakeMatchedReader{
+		jobs: []models.Job{
+			{ID: 8, Title: "Saved Role", URL: "https://example.com/8", Status: "saved", MatchScore: &score},
+		},
+		total: 1,
+	}
+	r := gin.New()
+	RegisterMatchedJobsRoutes(r, reader)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/jobs?status=saved&search=role", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body matchedListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json decode: %v", err)
+	}
+	if len(body.Items) != 1 || body.Items[0].Status != "saved" {
+		t.Fatalf("unexpected body: %+v", body)
+	}
+}
+
+func TestUpdateJobStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	RegisterMatchedJobsRoutes(r, &fakeMatchedReader{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/jobs/7/status", strings.NewReader(`{"status":"applied"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestJobStats(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	RegisterMatchedJobsRoutes(r, &fakeMatchedReader{stats: map[string]int64{"matched": 2, "failed": 1}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/jobs/stats", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Counts map[string]int64 `json:"counts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json decode: %v", err)
+	}
+	if body.Counts["matched"] != 2 || body.Counts["failed"] != 1 {
+		t.Fatalf("unexpected counts: %+v", body.Counts)
+	}
+}
+
+func TestReanalyzeJob(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	RegisterMatchedJobsRoutes(r, &fakeMatchedReader{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/jobs/7/reanalyze", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
 }

@@ -14,6 +14,8 @@
         <p class="mt-1 text-sm text-slate-400">Matched OnlineJobsPH roles scored against your active CV profile.</p>
       </div>
       <div class="flex flex-wrap gap-2">
+        <button id="btn-scrape" type="button" class="inline-flex items-center rounded-lg border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-medium hover:bg-slate-800">Scrape</button>
+        <button id="btn-analyze" type="button" class="inline-flex items-center rounded-lg border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-medium hover:bg-slate-800">Analyze</button>
         <a id="btn-csv" href="#" class="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500">Download CSV</a>
         <a id="btn-xlsx" href="#" class="inline-flex items-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500">Download Excel</a>
         <button id="btn-refresh" type="button" class="inline-flex items-center rounded-lg border border-slate-600 bg-slate-900 px-4 py-2 text-sm font-medium hover:bg-slate-800">Refresh</button>
@@ -92,23 +94,30 @@
     </section>
 
     <section class="mb-6 rounded-xl border border-slate-800 bg-slate-900/50 p-4 shadow-sm">
-      <div class="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
-        <label class="flex items-center gap-2 text-sm">
-          <input id="filter-notified" type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500" />
-          <span>Show <strong>notified</strong> jobs only</span>
-        </label>
-        <div class="flex flex-wrap gap-4">
-          <div>
-            <label for="date-from" class="block text-xs font-medium text-slate-400">Posted from</label>
-            <input id="date-from" type="date" class="mt-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
-          </div>
-          <div>
-            <label for="date-to" class="block text-xs font-medium text-slate-400">Posted to</label>
-            <input id="date-to" type="date" class="mt-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white" />
-          </div>
-        </div>
-        <p id="status-line" class="text-sm text-slate-400 lg:ml-auto">Loading...</p>
+      <div class="mb-4 flex gap-2 overflow-x-auto pb-1" id="job-tabs">
+        <button type="button" data-status="matched" class="job-tab whitespace-nowrap rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white">New matches</button>
+        <button type="button" data-status="saved" class="job-tab whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200">Saved</button>
+        <button type="button" data-status="applied" class="job-tab whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200">Applied</button>
+        <button type="button" data-status="dismissed" class="job-tab whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200">Dismissed</button>
+        <button type="button" data-status="failed" class="job-tab whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200">Failed analysis</button>
       </div>
+      <div class="grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
+        <div>
+          <label for="job-search" class="block text-xs font-medium text-slate-400">Search</label>
+          <input id="job-search" type="search" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" placeholder="Title, company, or description" />
+        </div>
+        <div>
+          <label for="job-sort" class="block text-xs font-medium text-slate-400">Sort</label>
+          <select id="job-sort" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white">
+            <option value="score">Best score</option>
+            <option value="posted">Newest posted</option>
+            <option value="title">Title</option>
+            <option value="company">Company</option>
+          </select>
+        </div>
+        <p id="status-line" class="text-sm text-slate-400 lg:pb-2">Loading...</p>
+      </div>
+      <p id="analysis-line" class="mt-3 text-xs text-slate-500">Analysis status loading...</p>
     </section>
 
     <div id="error-banner" class="mb-4 hidden rounded-lg border border-red-900 bg-red-950/80 px-4 py-3 text-sm text-red-200"></div>
@@ -118,10 +127,13 @@
         <thead class="bg-slate-900/80 text-xs uppercase tracking-wide text-slate-400">
           <tr>
             <th class="px-4 py-3 font-medium">Title</th>
+            <th class="px-4 py-3 font-medium">Company</th>
             <th class="px-4 py-3 font-medium">Salary</th>
             <th class="px-4 py-3 font-medium">Score</th>
             <th class="px-4 py-3 font-medium">Reason</th>
+            <th class="px-4 py-3 font-medium">Status</th>
             <th class="px-4 py-3 font-medium">Link</th>
+            <th class="px-4 py-3 font-medium">Actions</th>
           </tr>
         </thead>
         <tbody id="jobs-tbody" class="divide-y divide-slate-800 text-slate-200"></tbody>
@@ -134,10 +146,13 @@
 (function () {
   const tbody = document.getElementById("jobs-tbody");
   const statusLine = document.getElementById("status-line");
+  const analysisLine = document.getElementById("analysis-line");
   const errorBanner = document.getElementById("error-banner");
-  const filterNotified = document.getElementById("filter-notified");
-  const dateFrom = document.getElementById("date-from");
-  const dateTo = document.getElementById("date-to");
+  const jobTabs = Array.from(document.querySelectorAll(".job-tab"));
+  const jobSearch = document.getElementById("job-search");
+  const jobSort = document.getElementById("job-sort");
+  const btnScrape = document.getElementById("btn-scrape");
+  const btnAnalyze = document.getElementById("btn-analyze");
   const btnRefresh = document.getElementById("btn-refresh");
   const btnCsv = document.getElementById("btn-csv");
   const btnXlsx = document.getElementById("btn-xlsx");
@@ -165,6 +180,8 @@
 
   let rawItems = [];
   let profileConfigured = false;
+  let activeStatus = "matched";
+  let searchTimer = null;
 
   function showError(msg) {
     errorBanner.textContent = msg;
@@ -175,35 +192,8 @@
     errorBanner.textContent = "";
   }
 
-  function notifiedParam() {
-    return filterNotified.checked ? "true" : "false";
-  }
-
   function exportHref(format) {
-    return "/api/jobs/matched/export?format=" + encodeURIComponent(format) + "&notified=" + notifiedParam();
-  }
-
-  function parseDay(s) {
-    if (!s) return null;
-    const d = new Date(s + "T00:00:00");
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  function jobDay(postedAt) {
-    if (!postedAt) return null;
-    const d = new Date(postedAt);
-    if (isNaN(d.getTime())) return null;
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  }
-
-  function inDateRange(postedAt) {
-    const from = parseDay(dateFrom.value);
-    const to = parseDay(dateTo.value);
-    const jd = jobDay(postedAt);
-    if (!jd) return true;
-    if (from && jd < from) return false;
-    if (to && jd > to) return false;
-    return true;
+    return "/api/jobs/matched/export?format=" + encodeURIComponent(format) + "&notified=false";
   }
 
   function esc(s) {
@@ -215,12 +205,34 @@
       .replace(/"/g, "&quot;");
   }
 
+  function sortedJobs(items) {
+    const jobs = items.slice();
+    const mode = jobSort.value;
+    jobs.sort(function (a, b) {
+      if (mode === "title") {
+        return String(a.title || "").localeCompare(String(b.title || ""));
+      }
+      if (mode === "company") {
+        return String(a.company || "").localeCompare(String(b.company || ""));
+      }
+      if (mode === "posted") {
+        return Date.parse(b.posted_at || "") - Date.parse(a.posted_at || "");
+      }
+      return Number(b.match_score || -1) - Number(a.match_score || -1);
+    });
+    return jobs;
+  }
+
+  function actionButton(id, action, label) {
+    return '<button type="button" data-id="' + esc(String(id)) + '" data-action="' + esc(action) + '" class="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs font-medium text-slate-200 hover:bg-slate-800">' + esc(label) + '</button>';
+  }
+
   function renderRows(items) {
     tbody.innerHTML = "";
-    const filtered = items.filter(function (j) { return inDateRange(j.posted_at); });
+    const filtered = sortedJobs(items);
     if (filtered.length === 0) {
       const tr = document.createElement("tr");
-      tr.innerHTML = '<td colspan="5" class="px-4 py-8 text-center text-slate-500">No rows match filters.</td>';
+      tr.innerHTML = '<td colspan="8" class="px-4 py-8 text-center text-slate-500">No rows match filters.</td>';
       tbody.appendChild(tr);
       return;
     }
@@ -228,17 +240,29 @@
       const tr = document.createElement("tr");
       tr.className = "hover:bg-slate-800/50";
       const title = esc(j.title || "");
+      const company = esc((j.company != null ? j.company : "") || "");
       const salary = esc((j.salary != null ? j.salary : "") || "");
       const score = j.match_score != null ? esc(String(j.match_score)) : "-";
-      const reason = esc((j.match_reason != null ? j.match_reason : "") || "");
+      const reasonText = (j.analysis_last_error != null ? j.analysis_last_error : j.match_reason) || "";
+      const reason = esc(reasonText);
+      const status = esc(j.status || activeStatus);
       const url = j.url || "#";
       const safeUrl = esc(url);
+      const actions = [
+        activeStatus !== "saved" ? actionButton(j.id, "saved", "Save") : "",
+        activeStatus !== "applied" ? actionButton(j.id, "applied", "Applied") : "",
+        activeStatus !== "dismissed" ? actionButton(j.id, "dismissed", "Dismiss") : "",
+        actionButton(j.id, "reanalyze", "Re-analyze")
+      ].filter(Boolean).join(" ");
       tr.innerHTML =
         '<td class="px-4 py-3 font-medium text-white">' + title + "</td>" +
+        '<td class="px-4 py-3 text-slate-300">' + company + "</td>" +
         '<td class="px-4 py-3 text-slate-300">' + salary + "</td>" +
         '<td class="px-4 py-3 text-slate-300">' + score + "</td>" +
         '<td class="max-w-md px-4 py-3 text-slate-400">' + reason + "</td>" +
-        '<td class="px-4 py-3"><a class="text-sky-400 hover:underline" href="' + safeUrl + '" target="_blank" rel="noopener">Open</a></td>';
+        '<td class="px-4 py-3 text-slate-300">' + status + "</td>" +
+        '<td class="px-4 py-3"><a class="text-sky-400 hover:underline" href="' + safeUrl + '" target="_blank" rel="noopener">Open</a></td>' +
+        '<td class="px-4 py-3"><div class="flex min-w-40 flex-wrap gap-2">' + actions + "</div></td>";
       tbody.appendChild(tr);
     });
   }
@@ -461,7 +485,13 @@
   async function loadJobs() {
     clearError();
     statusLine.textContent = "Loading...";
-    const url = "/api/jobs/matched?notified=" + notifiedParam() + "&limit=100&offset=0";
+    const params = new URLSearchParams({
+      status: activeStatus,
+      search: jobSearch.value.trim(),
+      limit: "100",
+      offset: "0"
+    });
+    const url = "/api/jobs?" + params.toString();
     try {
       const res = await fetch(url, { headers: { Accept: "application/json" } });
       if (!res.ok) {
@@ -472,6 +502,7 @@
       rawItems = Array.isArray(data.items) ? data.items : [];
       statusLine.textContent = rawItems.length + " job(s) loaded" + (data.total != null ? " (total " + data.total + ")" : "");
       renderRows(rawItems);
+      loadJobStats();
     } catch (e) {
       showError("Failed to load jobs: " + (e && e.message ? e.message : String(e)));
       statusLine.textContent = "Error";
@@ -479,7 +510,102 @@
     }
   }
 
+  async function loadJobStats() {
+    try {
+      const res = await fetch("/api/jobs/stats", { headers: { Accept: "application/json" } });
+      if (!res.ok) return;
+      const data = await res.json();
+      const counts = data.counts || {};
+      const queued = counts.queued || 0;
+      const matched = counts.matched || 0;
+      const saved = counts.saved || 0;
+      const failed = counts.failed || 0;
+      analysisLine.textContent = "Queued " + queued + " | New matches " + matched + " | Saved " + saved + " | Failed " + failed;
+    } catch (e) {
+      analysisLine.textContent = "Analysis status unavailable.";
+    }
+  }
+
+  async function updateJobStatus(id, status) {
+    clearError();
+    try {
+      const res = await fetch("/api/jobs/" + encodeURIComponent(id) + "/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ status: status })
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || res.statusText);
+      }
+      await loadJobs();
+    } catch (e) {
+      showError("Failed to update job: " + (e && e.message ? e.message : String(e)));
+    }
+  }
+
+  async function reanalyzeJob(id) {
+    clearError();
+    try {
+      const res = await fetch("/api/jobs/" + encodeURIComponent(id) + "/reanalyze", {
+        method: "POST",
+        headers: { Accept: "application/json" }
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || res.statusText);
+      }
+      await loadJobs();
+    } catch (e) {
+      showError("Failed to re-analyze job: " + (e && e.message ? e.message : String(e)));
+    }
+  }
+
+  function setActiveStatus(status) {
+    activeStatus = status;
+    jobTabs.forEach(function (tab) {
+      const active = tab.dataset.status === status;
+      tab.className = active
+        ? "job-tab whitespace-nowrap rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white"
+        : "job-tab whitespace-nowrap rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-medium text-slate-200";
+    });
+    loadJobs();
+  }
+
+  function debounceLoadJobs() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(loadJobs, 250);
+  }
+
+  async function runScrape() {
+    clearError();
+    setScraperStatus("Scraping OnlineJobsPH...", false);
+    btnScrape.disabled = true;
+    try {
+      await saveScraperSettings();
+      const res = await fetch("/api/scraper/run", { method: "POST", headers: { Accept: "application/json" } });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) {
+        throw new Error(data.error || res.statusText);
+      }
+      setScraperStatus("Queued " + (data.queued || 0) + " job(s) for analysis.", false);
+      await loadJobs();
+    } catch (e) {
+      setScraperStatus("Scrape failed: " + (e && e.message ? e.message : String(e)), true);
+    } finally {
+      btnScrape.disabled = false;
+    }
+  }
+
+  async function refreshAnalysis() {
+    analysisLine.textContent = "Refreshing analysis status...";
+    await loadJobStats();
+    await loadJobs();
+  }
+
   btnRefresh.addEventListener("click", loadJobs);
+  btnScrape.addEventListener("click", runScrape);
+  btnAnalyze.addEventListener("click", refreshAnalysis);
   btnSaveProfile.addEventListener("click", saveProfile);
   btnSaveAi.addEventListener("click", saveAISettings);
   btnTestAi.addEventListener("click", testAISettings);
@@ -501,9 +627,24 @@
       profileUpload.value = "";
     }
   });
-  filterNotified.addEventListener("change", loadJobs);
-  dateFrom.addEventListener("change", function () { renderRows(rawItems); });
-  dateTo.addEventListener("change", function () { renderRows(rawItems); });
+  jobTabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      setActiveStatus(tab.dataset.status || "matched");
+    });
+  });
+  jobSearch.addEventListener("input", debounceLoadJobs);
+  jobSort.addEventListener("change", function () { renderRows(rawItems); });
+  tbody.addEventListener("click", function (e) {
+    const button = e.target.closest("button[data-action]");
+    if (!button) return;
+    const id = button.dataset.id;
+    const action = button.dataset.action;
+    if (action === "reanalyze") {
+      reanalyzeJob(id);
+      return;
+    }
+    updateJobStatus(id, action);
+  });
 
   btnCsv.addEventListener("click", function (e) {
     e.preventDefault();
