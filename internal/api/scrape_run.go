@@ -47,7 +47,7 @@ func (h *ScrapeRunHandler) Run(c *gin.Context) {
 		RequestDelay:     time.Duration(settings.RequestDelayMS) * time.Millisecond,
 	})
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), scrapeTimeout(settings.MaxPages))
 	defer cancel()
 
 	details, err := s.ScrapeNewDetails(ctx, &db.GormSeenJobStore{DB: h.DB})
@@ -63,6 +63,17 @@ func (h *ScrapeRunHandler) Run(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, scrapeRunResponse{Queued: len(details)})
+}
+
+func scrapeTimeout(maxPages int) time.Duration {
+	timeout := time.Duration(maxPages) * time.Minute
+	if timeout < 5*time.Minute {
+		return 5 * time.Minute
+	}
+	if timeout > 20*time.Minute {
+		return 20 * time.Minute
+	}
+	return timeout
 }
 
 func queuedJobFromDetail(detail scraper.JobDetail) models.Job {
