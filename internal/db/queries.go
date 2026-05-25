@@ -8,6 +8,7 @@ import (
 
 	"github.com/shinichikudo1st/job-scraper/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var ErrProfileNotFound = errors.New("active profile not found")
@@ -375,24 +376,15 @@ func MarkSeenJob(conn *gorm.DB, externalID, url, title, status string) error {
 		FirstSeenAt: now,
 		LastSeenAt:  now,
 	}
-	return conn.Transaction(func(tx *gorm.DB) error {
-		var existing models.SeenJob
-		err := tx.Where("external_id = ?", externalID).First(&existing).Error
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return tx.Create(&seen).Error
-			}
-			return err
-		}
-		return tx.Model(&models.SeenJob{}).
-			Where("external_id = ?", externalID).
-			Updates(map[string]any{
-				"url":          url,
-				"title":        title,
-				"status":       status,
-				"last_seen_at": now,
-			}).Error
-	})
+	return conn.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "external_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"url":          url,
+			"title":        title,
+			"status":       status,
+			"last_seen_at": now,
+		}),
+	}).Create(&seen).Error
 }
 
 func PruneSeenJobs(conn *gorm.DB, status string, olderThan time.Time) (int64, error) {

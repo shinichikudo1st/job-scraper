@@ -56,6 +56,15 @@ type OnlineJobsPHScraper struct {
 	HTTPClient *http.Client
 }
 
+type HTTPStatusError struct {
+	URL        string
+	StatusCode int
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("fetch %s: status %d", e.URL, e.StatusCode)
+}
+
 func NewOnlineJobsPHScraper(config OnlineJobsPHConfig) *OnlineJobsPHScraper {
 	if strings.TrimSpace(config.BaseURL) == "" {
 		config.BaseURL = DefaultOnlineJobsPHBaseURL
@@ -104,6 +113,12 @@ func (s *OnlineJobsPHScraper) ScrapeNewDetails(ctx context.Context, seen SeenSto
 			}
 			detail, err := s.FetchDetail(ctx, summary)
 			if err != nil {
+				if isStaleDetailError(err) {
+					if err := seen.MarkSeen(summary.ExternalID, summary.URL, summary.Title); err != nil {
+						return nil, err
+					}
+					continue
+				}
 				return nil, err
 			}
 			if err := seen.MarkSeen(summary.ExternalID, summary.URL, summary.Title); err != nil {
@@ -152,7 +167,7 @@ func (s *OnlineJobsPHScraper) fetch(ctx context.Context, targetURL string) (stri
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("fetch %s: status %d", targetURL, resp.StatusCode)
+		return "", &HTTPStatusError{URL: targetURL, StatusCode: resp.StatusCode}
 	}
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -213,6 +228,14 @@ func onlineJobsPHOffsetURL(u *url.URL, page int) string {
 	}
 	u.Path = strings.TrimRight(basePath, "/") + "/" + strconv.Itoa(offset)
 	return u.String()
+}
+
+func isStaleDetailError(err error) bool {
+	var statusErr *HTTPStatusError
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	return statusErr.StatusCode == http.StatusNotFound || statusErr.StatusCode == http.StatusGone
 }
 
 func (s *OnlineJobsPHScraper) baseURL() string {

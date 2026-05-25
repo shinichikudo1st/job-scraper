@@ -195,3 +195,51 @@ func TestScrapeNewDetailsFetchesOnlyNewCandidateDetails(t *testing.T) {
 		t.Fatalf("expected no duplicate detail request, got %d", detailRequests)
 	}
 }
+
+func TestScrapeNewDetailsSkipsGoneDetailPages(t *testing.T) {
+	var serverURL string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/search":
+			fmt.Fprintf(w, `
+				<article class="job">
+					<a href="%s/jobseekers/job/Expired-Developer-111">Expired Developer</a>
+					<p>Build software.</p>
+				</article>
+				<article class="job">
+					<a href="%s/jobseekers/job/Active-Developer-222">Active Developer</a>
+					<p>Build software.</p>
+				</article>`, serverURL, serverURL)
+		case "/jobseekers/job/Expired-Developer-111":
+			http.Error(w, "gone", http.StatusGone)
+		case "/jobseekers/job/Active-Developer-222":
+			fmt.Fprint(w, `<h1>Active Developer</h1><main>Build useful software.</main>`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	serverURL = ts.URL
+	defer ts.Close()
+
+	s := NewOnlineJobsPHScraper(OnlineJobsPHConfig{
+		BaseURL:   ts.URL,
+		SearchURL: ts.URL + "/search",
+		Keywords:  []string{"developer"},
+		MaxPages:  1,
+	})
+	store := &fakeSeenStore{seen: map[string]bool{}}
+
+	details, err := s.ScrapeNewDetails(context.Background(), store)
+	if err != nil {
+		t.Fatalf("ScrapeNewDetails() error = %v", err)
+	}
+	if len(details) != 1 {
+		t.Fatalf("expected 1 active detail, got %d: %+v", len(details), details)
+	}
+	if details[0].ExternalID != "active-developer-222" {
+		t.Fatalf("unexpected active detail: %+v", details[0])
+	}
+	if !store.seen["expired-developer-111"] {
+		t.Fatalf("expected expired detail to be marked seen")
+	}
+}
