@@ -177,12 +177,42 @@ func (s *OnlineJobsPHScraper) pageURL(page int) (string, error) {
 		}
 		u = base.ResolveReference(u)
 	}
+	if strings.Contains(u.Path, "/jobseekers/jobsearch") {
+		return onlineJobsPHOffsetURL(u, page), nil
+	}
 	q := u.Query()
 	if page > 1 {
 		q.Set("page", strconv.Itoa(page))
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
+}
+
+func onlineJobsPHOffsetURL(u *url.URL, page int) string {
+	if page <= 1 {
+		return u.String()
+	}
+
+	parts := strings.Split(strings.TrimRight(u.Path, "/"), "/")
+	startOffset := 0
+	if len(parts) > 0 {
+		if n, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+			startOffset = n
+			parts = parts[:len(parts)-1]
+		}
+	}
+
+	offset := startOffset + ((page - 1) * 30)
+	basePath := strings.Join(parts, "/")
+	if !strings.HasPrefix(basePath, "/") {
+		basePath = "/" + basePath
+	}
+	if offset <= 0 {
+		u.Path = basePath
+		return u.String()
+	}
+	u.Path = strings.TrimRight(basePath, "/") + "/" + strconv.Itoa(offset)
+	return u.String()
 }
 
 func (s *OnlineJobsPHScraper) baseURL() string {

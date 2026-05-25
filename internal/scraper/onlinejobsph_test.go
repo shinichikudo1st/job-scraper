@@ -85,6 +85,42 @@ func TestParseDetailHTML(t *testing.T) {
 	}
 }
 
+func TestOnlineJobsPHPageURLUsesOffsetPagination(t *testing.T) {
+	s := NewOnlineJobsPHScraper(OnlineJobsPHConfig{
+		SearchURL: "https://www.onlinejobs.ph/jobseekers/jobsearch/120?jobkeyword=developer",
+	})
+
+	tests := map[int]string{
+		1: "https://www.onlinejobs.ph/jobseekers/jobsearch/120?jobkeyword=developer",
+		2: "https://www.onlinejobs.ph/jobseekers/jobsearch/150?jobkeyword=developer",
+		3: "https://www.onlinejobs.ph/jobseekers/jobsearch/180?jobkeyword=developer",
+	}
+
+	for page, want := range tests {
+		got, err := s.pageURL(page)
+		if err != nil {
+			t.Fatalf("pageURL(%d) error = %v", page, err)
+		}
+		if got != want {
+			t.Fatalf("pageURL(%d) = %q, want %q", page, got, want)
+		}
+	}
+}
+
+func TestOnlineJobsPHPageURLStartsAtFirstPage(t *testing.T) {
+	s := NewOnlineJobsPHScraper(OnlineJobsPHConfig{
+		SearchURL: "https://www.onlinejobs.ph/jobseekers/jobsearch",
+	})
+
+	got, err := s.pageURL(2)
+	if err != nil {
+		t.Fatalf("pageURL(2) error = %v", err)
+	}
+	if got != "https://www.onlinejobs.ph/jobseekers/jobsearch/30" {
+		t.Fatalf("pageURL(2) = %q", got)
+	}
+}
+
 type fakeSeenStore struct {
 	seen map[string]bool
 }

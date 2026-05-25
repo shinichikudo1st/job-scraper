@@ -73,7 +73,7 @@ Use the **Active CV profile** panel in the UI to paste your CV or upload a `.txt
 
 Use the **AI provider** panel in the UI to select Ollama, OpenAI, Anthropic, or an OpenAI-compatible server. API keys entered in the UI are kept in memory for the current app session only. They are not stored in SQLite.
 
-Use the **OnlineJobsPH search** panel to save local scraper preferences such as search URL, keywords, exclusions, max pages, and minimum salary.
+Use the **OnlineJobsPH search** panel to save local scraper preferences such as search URL, keywords, exclusions, pages to scan, and minimum salary. The default search URL starts from the first OnlineJobsPH results page and the default page count scans 10 result pages, matching `/jobseekers/jobsearch`, `/30`, `/60`, and so on through `/270`. If you intentionally start from `/jobseekers/jobsearch/120` and scan 2 pages, Smarter OLJ scans `/120` and `/150`.
 
 Default SQLite database locations:
 

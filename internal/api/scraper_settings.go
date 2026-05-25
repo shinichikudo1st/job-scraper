@@ -37,7 +37,7 @@ func DefaultScraperSettings() scraperSettingsJSON {
 		SearchURL:        scraper.DefaultOnlineJobsPHBaseURL + "/jobseekers/jobsearch",
 		Keywords:         []string{},
 		ExcludedKeywords: []string{},
-		MaxPages:         1,
+		MaxPages:         10,
 		MinSalary:        0,
 		RequestDelayMS:   1000,
 	}
